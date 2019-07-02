@@ -84,12 +84,13 @@ bool DatabaseCatalog::DeleteTable(transaction::TransactionContext *const txn, co
   classes_oid_index_->Delete(txn, *index_pr, index_results[0]);
 
   // Delete from name_index
-  index_pr = oid_index_init.InitializeRow(buffer);
+  index_pr = name_index_init.InitializeRow(buffer);
   *(reinterpret_cast<storage::VarlenEntry *const>(index_pr->AccessForceNotNull(0))) = name_varlen;
+  *(reinterpret_cast<namespace_oid_t *>(index_pr->AccessForceNotNull(1))) = ns_oid;
   classes_namespace_index_->Delete(txn, *index_pr, index_results[0]);
 
   // Delete from namespace_index
-  index_pr = oid_index_init.InitializeRow(buffer);
+  index_pr = ns_index_init.InitializeRow(buffer);
   *(reinterpret_cast<uint32_t *const>(index_pr->AccessForceNotNull(0))) = static_cast<uint32_t>(ns_oid);
   classes_namespace_index_->Delete(txn, *index_pr, index_results[0]);
 
@@ -114,9 +115,7 @@ bool DatabaseCatalog::DeleteTable(transaction::TransactionContext *const txn, co
   return true;
 }
 
-
-// TODO(Chenyao): Do we need namespace_oid_t
-std::pair<generic_oid_t, postgres::ClassKind> DatabaseCatalog::getClassOidKind(transaction::TransactionContext *const txn, const namespace_oid_t ns,
+std::pair<uint32_t, postgres::ClassKind> DatabaseCatalog::getClassOidKind(transaction::TransactionContext *const txn, const namespace_oid_t ns_oid,
                                                                const std::string &name) {
   std::vector<storage::TupleSlot> index_results;
   auto name_pri = classes_name_index_->GetProjectedRowInitializer();
@@ -137,6 +136,7 @@ std::pair<generic_oid_t, postgres::ClassKind> DatabaseCatalog::getClassOidKind(t
   auto *const buffer = common::AllocationUtil::AllocateAligned(name_pri.ProjectedRowSize());
   auto pr = name_pri.InitializeRow(buffer);
   *(reinterpret_cast<storage::VarlenEntry *>(pr->AccessForceNotNull(0))) = name_varlen;
+  *(reinterpret_cast<namespace_oid_t *>(pr->AccessForceNotNull(1))) = ns_oid;
 
   classes_name_index_->ScanKey(*txn, *pr, &index_results);
   if (varlen_contents != nullptr) {
@@ -146,7 +146,7 @@ std::pair<generic_oid_t, postgres::ClassKind> DatabaseCatalog::getClassOidKind(t
   if (index_results.empty()) {
     delete[] buffer;
     // If the OID is invalid, we don't care the class kind and return a random one.
-    return std::make_pair(INVALID_GENERIC_OID, postgres::ClassKind::REGULAR_TABLE);
+    return std::make_pair(0, postgres::ClassKind::REGULAR_TABLE);
   }
   TERRIER_ASSERT(index_results.size() == 1, "name not unique in classes_name_index_");
 
@@ -158,7 +158,7 @@ std::pair<generic_oid_t, postgres::ClassKind> DatabaseCatalog::getClassOidKind(t
   TERRIER_ASSERT(result, "Index already verified visibility. This shouldn't fail.");
 
   // This code assumes ordering of attribute by size in the ProjectedRow (size of kind is smaller than size of oid)
-  auto oid = *(reinterpret_cast<const generic_oid_t *const>(pr->AccessForceNotNull(0)));
+  auto oid = *(reinterpret_cast<const uint32_t *const>(pr->AccessForceNotNull(0)));
   auto kind = *(reinterpret_cast<const postgres::ClassKind *const>(pr->AccessForceNotNull(1)));
 
   delete[] buffer;
@@ -595,6 +595,7 @@ bool DatabaseCatalog::CreateTableEntry(transaction::TransactionContext *const tx
   // Insert into name_index
   index_pr = name_index_init.InitializeRow(index_buffer);
   *(reinterpret_cast<storage::VarlenEntry *>(index_pr->AccessForceNotNull(0))) = name_varlen;
+  *(reinterpret_cast<namespace_oid_t *>(index_pr->AccessForceNotNull(1))) = ns_oid;
   if (!classes_name_index_->InsertUnique(txn, *index_pr, tuple_slot)) {
     // There was a name conflict and we need to abort.  Free the buffer and
     // return INVALID_TABLE_OID to indicate the database was not created.
