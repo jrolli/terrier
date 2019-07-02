@@ -45,7 +45,7 @@ bool DatabaseCatalog::DeleteTable(transaction::TransactionContext *const txn, co
   if (index_results.empty()) {
     // TODO(Matt): we should verify what postgres does in this case
     // Index scan didn't find anything. This seems weird since we were able to enter this function with a table_oid.
-    // That implies that it was visible to us. Maybe the table was dropped twice by the same txn?
+    // That implies that it was visible to us. Maybe the table was dropped or renamed twice by the same txn?
     delete[] buffer;
     return false;
   }
@@ -164,6 +164,57 @@ table_oid_t DatabaseCatalog::GetTableOid(transaction::TransactionContext *const 
   delete[] buffer;
   return table_oid;
 }
+
+/**
+ * Inform the catalog of where the underlying storage for a table is
+ * @param table OID in the catalog
+ * @param table_ptr to the memory where the storage is
+ * @return whether the operation was successful
+ * @warning The table pointer that is passed in must be on the heap as the
+ * catalog will take ownership of it and schedule its deletion with the GC
+ * at the appropriate time.
+ */
+bool DatabaseCatalog::SetTablePointer(transaction::TransactionContext *txn, table_oid_t table, storage::SqlTable *table_ptr) {
+  TERRIER_ASSERT(table_ptr != nullptr, "Why are you inserting nullptr here? That seems wrong.");
+  std::vector<storage::TupleSlot> index_results;
+  auto oid_pri = classes_oid_index_->GetProjectedRowInitializer();
+
+  auto [pr_init, pr_map] = classes_->InitializerForProjectedRow({REL_PTR_COL_OID});
+
+  auto *const buffer = common::AllocationUtil::AllocateAligned(pr_init.ProjectedRowSize());
+  auto *key_pr = oid_pri.InitializeRow(buffer);
+
+  // Find the entry using the index
+  *(reinterpret_cast<uint32_t *>(key_pr->AccessForceNotNull(0))) = static_cast<uint32_t>(table);
+  classes_oid_index_->ScanKey(*txn, *key_pr, &index_results);
+  if (index_results.empty()) {
+    // TODO(Matt): we should verify what postgres does in this case
+    // Index scan didn't find anything. This seems weird since we were able to enter this function with a table_oid.
+    // That implies that it was visible to us. Maybe the table was dropped or renamed twice by the same txn?
+    delete[] buffer;
+    return false;
+  }
+  TERRIER_ASSERT(index_results.size() == 1, "You got more than one result from a unique index. How did you do that?");
+
+  delete[] buffer;
+
+  auto *update_redo = txn->StageWrite(db_oid_,table, pr_init);
+  auto *update_pr = update_redo->Delta();
+  auto *const table_ptr_ptr = update_pr->AccessForceNotNull(0);
+  *(reinterpret_cast<uintptr_t *>(table_ptr_ptr)) = reinterpret_cast<uintptr_t>(table_ptr);
+
+  return classes_->Update(txn,update_redo);
+}
+
+/**
+ * Obtain the storage pointer for a SQL table
+ * @param table to which we want the storage object
+ * @return the storage object corresponding to the passed OID
+ */
+common::ManagedPointer<storage::SqlTable> DatabaseCatalog::GetTable(transaction::TransactionContext *txn, table_oid_t table) {
+
+}
+
 
 // bool DatabaseCatalog::RenameTable(transaction::TransactionContext *txn, table_oid_t table, const std::string &name);
 
