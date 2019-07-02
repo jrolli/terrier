@@ -26,6 +26,11 @@ namespace terrier::catalog::postgres {
 #define REL_SCHEMA_COL_OID col_oid_t(5)     // BIGINT (assumes 64-bit pointers)
 #define REL_PTR_COL_OID col_oid_t(6)        // BIGINT (assumes 64-bit pointers)
 #define REL_NEXTCOLOID_COL_OID col_oid_t(7) // INTEGER
+#define PG_CLASS_ALL_COL_OIDS                                                                                    \
+  {                                                                                                              \
+    RELOID_COL_OID, RELNAME_COL_OID, RELNAMESPACE_COL_OID, RELKIND_COL_OID, REL_SCHEMA_COL_OID, REL_PTR_COL_OID, \
+        REL_NEXTCOLOID_COL_OID                                                                                   \
+  }
 
 enum class ClassKind : char {
   REGULAR_TABLE = 'r',

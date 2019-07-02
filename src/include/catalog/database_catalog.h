@@ -173,33 +173,6 @@ class DatabaseCatalog {
    */
   const IndexSchema &GetIndexSchema(transaction::TransactionContext *txn, index_oid_t index);
 
-  /**
-   * Creates a new namespace within the database
-   * @param txn for the operation
-   * @param name of the new namespace
-   * @return OID of the new namespace or INVALID_NAMESPACE_OID if the operation failed
-   */
-  namespace_oid_t CreateNamespace(transaction::TransactionContext *txn, const std::string &name);
-
-  /**
-   * Deletes the namespace and any objects assigned to the namespace.  The
-   * 'public' namespace cannot be deleted.  This operation will fail if any
-   * objects within the namespace cannot be deleted (i.e. write-write conflicts
-   * exist).
-   * @param txn for the operation
-   * @param ns OID to be deleted
-   * @param true if the deletion succeeded, otherwise false
-   */
-  bool DeleteNamespace(transaction::TransactionContext *txn, namespace_oid_t ns);
-
-  /**
-   * Resolve a namespace name to its OID.
-   * @param txn for the operation
-   * @param name of the namespace
-   * @return OID of the namespace or INVALID_NAMESPACE_OID if it does not exist
-   */
-  namespace_oid_t GetNamespaceOid(transaction::TransactionContext *txn, const std::string &name);
-
  private:
   storage::SqlTable *namespaces_;
   storage::index::Index *namespaces_oid_index_;
@@ -243,6 +216,19 @@ class DatabaseCatalog {
 
   friend class Catalog;
   friend class postgres::Builder;
+
+  /**
+   * Helper method to create index entries into pg_class and pg_indexes.
+   * @param txn txn for the operation
+   * @param ns_oid  OID of the namespace under which the index will fall
+   * @param table_oid table OID on which the new index exists
+   * @param index_oid OID for the index to create
+   * @param name name of the new index
+   * @param schema describing the new index
+   * @return true if creation succeeded, false otherwise
+   */
+  bool CreateIndexEntry(transaction::TransactionContext *const txn,
+  const namespace_oid_t ns_oid, table_oid_t table_oid, const index_oid_t index_oid, const std::string &name, const IndexSchema *schema);
 
   /**
    * Bootstraps the built-in types found in type::Type

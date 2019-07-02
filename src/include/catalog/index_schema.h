@@ -9,6 +9,7 @@ namespace terrier::catalog {
 
 namespace postgres {
   class Builder;
+  class DatabaseCatalog;
 }
 
 /**
@@ -136,6 +137,7 @@ class IndexSchema {
    */
   const Column &GetColumn(int index) const { return columns_.at(index); }
  private:
+  friend class DatabaseCatalog;
   const std::vector<Column> columns_;
   bool is_unique_;
   bool is_primary_;
