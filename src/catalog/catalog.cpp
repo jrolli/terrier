@@ -21,7 +21,7 @@ void Catalog::TearDown() {
   // Get a projected column on DatabaseCatalog pointers for scanning the table
   std::vector<col_oid_t> cols;
   cols.emplace_back(DAT_CATALOG_COL_OID);
-  [pci, pm] = databases_->InitializerForProjectedColumns(cols, 100);
+  auto [pci, pm] = databases_->InitializerForProjectedColumns(cols, 100);
 
   // This could potentially be optimized by calculating this size and hard-coding a byte array on the stack
   byte *buffer = common::AllocationUtil::AllocateAligned(pci.ProjectedColumnsSize());
@@ -31,13 +31,13 @@ void Catalog::TearDown() {
   // we will be reusing this same projected column the pointer to the start of
   // the column is stable.  Therefore we only need to do this cast once before
   // the loop.
-  auto db_ptrs = reinterpret_cast<DatabaseCatalog **>pc->ColumnStart(0);
+  auto db_ptrs = reinterpret_cast<DatabaseCatalog **>(pc->ColumnStart(0));
 
   // Scan the table and accumulate the pointers into a vector
   std::vector<DatabaseCatalog *> db_cats;
   auto table_iter = databases_->begin();
   while (table_iter != databases_->end()) {
-    databases_->Scan(txn, table_iter, pc);
+    databases_->Scan(txn, &table_iter, pc);
 
     for (int i = 0; i < pc->NumTuples())
       db_cats.emplace_back(db_ptrs[i]);
@@ -80,7 +80,7 @@ bool Catalog::DeleteDatabase(transaction::TransactionContext *txn, db_oid_t data
   // and not rely on the catalog still existing at the time the queue is processed
   auto del_action = DeallocateDatabaseCatalog(dbc);
 
-  // Defer the deallocation on commit because we need to scan the tables to find
+  // Defer the de-allocation on commit because we need to scan the tables to find
   // live references at deletion that need to be deleted.
   txn->RegisterCommitAction([=, del_action{std::move(del_action)}]() {
     txn_manager_->DeferAction(std::move(del_action));
@@ -103,37 +103,39 @@ db_oid_t Catalog::GetDatabaseOid(transaction::TransactionContext *txn, const std
   if (name.size() > storage::VarlenEntry::InlineThreshold()) {
     byte *contents = common::AllocationUtil::AllocateAligned(name.size());
     std::memcpy(contents, name.data(), name.size());
-    name_varlen = storage::VarlenEntry::Create(contents, name.size(), true);
+    name_varlen = storage::VarlenEntry::Create(contents, uint32_t(name.size()), true);
   } else {
-    name_varlen = storage::VarlenEntry::CreateInline(name.data(), name.size());
+    name_varlen = storage::VarlenEntry::CreateInline((byte*)(name.data()), uint32_t(name.size()));
   }
 
   // Name is a larger projected row (16-byte key vs 4-byte key), sow we can reuse
   // the buffer for both index operations if we allocate to the larger one.
   byte *buffer = common::AllocationUtil::AllocateAligned(name_pri.ProjectedRowSize());
-  auto pr = name_pri.Initialize(buffer);
-  auto *varlen = reinterpret_cast<storage::VarlenEntry *>pr->AccessForceNotNull(0);
+  auto pr = name_pri.InitializeRow(buffer);
+  auto *varlen = reinterpret_cast<storage::VarlenEntry *>(pr->AccessForceNotNull(0));
   *varlen = name_varlen;
 
-  databases_oid_index_->ScanKey(txn, pr, &index_results);
+  // Although txn and pr are de-referenced, they should not be modified by the ScanKey invocation
+  // as those two parameters are const guarded in the method definition.
+  databases_oid_index_->ScanKey(*txn, *pr, &index_results);
   if (index_results.empty())
   {
     delete[] buffer;
-    return nullptr;
+    return INVALID_DATABASE_OID;
   }
   TERRIER_ASSERT(index_results.size() == 1, "Database name not unique in index");
 
   std::vector<col_oid_t> table_oids;
   table_oids.emplace_back(DATOID_COL_OID);
   auto table_pri = databases_->InitializerForProjectedRow(table_oids).first;
-  pr = table_pri.Initialize(buffer);
+  pr = table_pri.InitializeRow(buffer);
   if (!databases_->Select(txn, index_results[0], pr)) {
     // Nothing visible
     delete[] buffer;
     return INVALID_DATABASE_OID;
   }
 
-  auto db_oid = *reinterpret_cast<db_oid_t *>pr->AccessForceNotNull(0);
+  auto db_oid = *reinterpret_cast<db_oid_t *>(pr->AccessForceNotNull(0));
   delete[] buffer;
   return db_oid;
 }
