@@ -211,10 +211,37 @@ bool DatabaseCatalog::SetTablePointer(transaction::TransactionContext *txn, tabl
  * @param table to which we want the storage object
  * @return the storage object corresponding to the passed OID
  */
-common::ManagedPointer<storage::SqlTable> DatabaseCatalog::GetTable(transaction::TransactionContext *txn, table_oid_t table) {
+common::ManagedPointer<storage::SqlTable> DatabaseCatalog::GetTable(transaction::TransactionContext *txn,
+                                                                    table_oid_t table) {
+  std::vector<storage::TupleSlot> index_results;
+  auto oid_pri = classes_oid_index_->GetProjectedRowInitializer();
 
+  auto [pr_init, pr_map] = classes_->InitializerForProjectedRow({REL_PTR_COL_OID});
+
+  auto *const buffer = common::AllocationUtil::AllocateAligned(pr_init.ProjectedRowSize());
+  auto *key_pr = oid_pri.InitializeRow(buffer);
+
+  // Find the entry using the index
+  *(reinterpret_cast<uint32_t *>(key_pr->AccessForceNotNull(0))) = static_cast<uint32_t>(table);
+  classes_oid_index_->ScanKey(*txn, *key_pr, &index_results);
+  if (index_results.empty()) {
+    // TODO(Matt): we should verify what postgres does in this case
+    // Index scan didn't find anything. This seems weird since we were able to enter this function with a table_oid.
+    // That implies that it was visible to us. Maybe the table was dropped or renamed twice by the same txn?
+    delete[] buffer;
+    return common::ManagedPointer<storage::SqlTable>(nullptr);
+  }
+  TERRIER_ASSERT(index_results.size() == 1, "You got more than one result from a unique index. How did you do that?");
+
+  auto *select_pr = pr_init.InitializeRow(buffer);
+  const auto result UNUSED_ATTRIBUTE = classes_->Select(txn, index_results[0], select_pr);
+  TERRIER_ASSERT(result, "Index already verified visibility. This shouldn't fail.");
+
+  auto *const table_ptr = *(reinterpret_cast<storage::SqlTable *const *const>(select_pr->AccessForceNotNull(0)));
+
+  delete[] buffer;
+  return common::ManagedPointer(table_ptr);
 }
-
 
 // bool DatabaseCatalog::RenameTable(transaction::TransactionContext *txn, table_oid_t table, const std::string &name);
 
