@@ -12,8 +12,8 @@ namespace terrier::catalog {
 Catalog::Catalog(transaction::TransactionManager *txn_manager, storage::BlockStore *block_store)
     : txn_manager_(txn_manager), catalog_block_store_(block_store), next_oid_(1) {
   databases_ = new storage::SqlTable(block_store, postgres::Builder::GetDatabaseTableSchema());
-  databases_oid_index_ = BuildUniqueIndex(postgres::Builder::GetDatabaseOidIndexSchema(), DATABASE_OID_INDEX_OID);
-  databases_name_index_ = BuildUniqueIndex(postgres::Builder::GetDatabaseNameIndexSchema(), DATABASE_NAME_INDEX_OID);
+  databases_oid_index_ = postgres::Builder::BuildUniqueIndex(postgres::Builder::GetDatabaseOidIndexSchema(), DATABASE_OID_INDEX_OID);
+  databases_name_index_ = postgres::Builder::BuildUniqueIndex(postgres::Builder::GetDatabaseNameIndexSchema(), DATABASE_NAME_INDEX_OID);
 }
 
 void Catalog::TearDown() {
