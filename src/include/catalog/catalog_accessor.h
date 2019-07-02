@@ -35,7 +35,6 @@ class Catalog;
  */
 class CatalogAccessor {
  public:
-
   /**
    * Given a database name, resolve it to the corresponding OID
    * @param name of the database
@@ -224,8 +223,7 @@ class CatalogAccessor {
    * @param schema describing the new index
    * @return OID for the index, INVALID_INDEX_OID if the operation failed
    */
-  index_oid_t CreateIndex(namespace_oid_t ns, table_oid_t table, const std::string &name,
-                          IndexSchema *schema);
+  index_oid_t CreateIndex(namespace_oid_t ns, table_oid_t table, const std::string &name, IndexSchema *schema);
 
   /**
    * Gets the schema that was used to define the index
@@ -272,7 +270,9 @@ class CatalogAccessor {
    * @param txn the transaction context for this accessor
    * @param database the OID of the database
    */
-  CatalogAccessor(Catalog *catalog, common::ManagedPointer<DatabaseCatalog> dbc, transaction::TransactionContext *txn, db_oid_t database) : catalog_(catalog), dbc_(dbc), txn_(txn), db_oid_(database) {}
+  CatalogAccessor(Catalog *catalog, common::ManagedPointer<DatabaseCatalog> dbc, transaction::TransactionContext *txn,
+                  db_oid_t database)
+      : catalog_(catalog), dbc_(dbc), txn_(txn), db_oid_(database) {}
   friend class Catalog;
 };
 
