@@ -646,21 +646,14 @@ bool DatabaseCatalog::CreateIndexEntry(transaction::TransactionContext *const tx
   auto *const rel_oid_ptr = indexes_insert_pr->AccessForceNotNull(rel_oid_offset);
   *(reinterpret_cast<uint32_t *>(rel_oid_ptr)) = static_cast<uint32_t>(table_oid);
 
-  // Helper lambda to write boolean values to PR
-  auto write_bool_to_pr = [this](col_oid_t col_oid, bool value) {
-    const auto offset = pr_map[col_oid];
-    auto *const pr_ptr = indexes_insert_pr->AccessForceNotNull(offset);
-    *(reinterpret_cast<bool *>(pr_ptr)) = value;
-  };
-
   // Write boolean values to PR
-  write_bool_to_pr(INDISUNIQUE_COL_OID, schema->is_unique_);
-  write_bool_to_pr(INDISPRIMARY_COL_OID, schema->is_primary_);
-  write_bool_to_pr(INDISEXCLUSION_COL_OID, schema->is_exclusion_);
-  write_bool_to_pr(INDIMMEDIATE_COL_OID, schema->is_immediate_);
-  write_bool_to_pr(INDISVALID_COL_OID, schema->is_valid_);
-  write_bool_to_pr(INDISREADY_COL_OID, schema->is_ready_);
-  write_bool_to_pr(INDISLIVE_COL_OID, schema->is_live_);
+  *(reinterpret_cast<bool *>(indexes_insert_pr->AccessForceNotNull(pr_map[INDISUNIQUE_COL_OID]))) = schema->is_unique_;
+  *(reinterpret_cast<bool *>(indexes_insert_pr->AccessForceNotNull(pr_map[INDISPRIMARY_COL_OID]))) = schema->is_primary_;
+  *(reinterpret_cast<bool *>(indexes_insert_pr->AccessForceNotNull(pr_map[INDISEXCLUSION_COL_OID]))) = schema->is_exclusion_;
+  *(reinterpret_cast<bool *>(indexes_insert_pr->AccessForceNotNull(pr_map[INDIMMEDIATE_COL_OID]))) = schema->is_immediate_;
+  *(reinterpret_cast<bool *>(indexes_insert_pr->AccessForceNotNull(pr_map[INDISVALID_COL_OID]))) = schema->is_valid_;
+  *(reinterpret_cast<bool *>(indexes_insert_pr->AccessForceNotNull(pr_map[INDISREADY_COL_OID]))) = schema->is_ready_;
+  *(reinterpret_cast<bool *>(indexes_insert_pr->AccessForceNotNull(pr_map[INDISLIVE_COL_OID]))) = schema->is_live_;
 
   // Insert into pg_index table
   const auto indexes_tuple_slot = indexes_->Insert(txn, indexes_insert_redo);
@@ -700,7 +693,6 @@ bool DatabaseCatalog::CreateIndexEntry(transaction::TransactionContext *const tx
 
 type_oid_t DatabaseCatalog::GetTypeOidForType(type::TypeId type) { return type_oid_t(static_cast<uint8_t>(type)); }
 
-// TODO(Gus): Change these to not use memcpy, rather derefernence the PR location like in CreateTableEntry
 void DatabaseCatalog::InsertType(transaction::TransactionContext *txn, type::TypeId internal_type,
                                  const std::string &name, namespace_oid_t namespace_oid, int16_t len, bool by_val,
                                  postgres::Type type_category) {
@@ -722,7 +714,7 @@ void DatabaseCatalog::InsertType(transaction::TransactionContext *txn, type::Typ
   // Populate oid
   auto offset = col_map[TYPOID_COL_OID];
   auto type_oid = GetTypeOidForType(internal_type);
-  memcpy(delta->AccessForceNotNull(offset), &type_oid, sizeof(type_oid_t));
+  *(reinterpret_cast<uint32_t *>(delta->AccessForceNotNull(offset))) = static_cast<uint32_t>(type_oid);
 
   // Populate type name
   offset = col_map[TYPNAME_COL_OID];
@@ -739,21 +731,20 @@ void DatabaseCatalog::InsertType(transaction::TransactionContext *txn, type::Typ
 
   // Populate namespace
   offset = col_map[TYPNAMESPACE_COL_OID];
-  memcpy(delta->AccessForceNotNull(offset), &namespace_oid, sizeof(namespace_oid_t));
+  *(reinterpret_cast<uint32_t *>(delta->AccessForceNotNull(offset))) = static_cast<uint32_t>(namespace_oid);
 
   // Populate len
   offset = col_map[TYPLEN_COL_OID];
-  memcpy(delta->AccessForceNotNull(offset), &len, sizeof(int16_t) /* SMALLINT */);
+  *(reinterpret_cast<int16_t *>(delta->AccessForceNotNull(offset))) = len;
 
   // Populate byval
   offset = col_map[TYPBYVAL_COL_OID];
-  memcpy(delta->AccessForceNotNull(offset), &by_val, sizeof(bool));
+  *(reinterpret_cast<bool *>(delta->AccessForceNotNull(offset))) = by_val;
 
   // Populate type
   offset = col_map[TYPTYPE_COL_OID];
-  // TODO(Gus): make sure this cast works
   auto type = static_cast<uint8_t>(type_category);
-  memcpy(delta->AccessForceNotNull(offset), &type, sizeof(uint8_t) /* TINYINT */);
+  *(reinterpret_cast<uint8_t *>(delta->AccessForceNotNull(offset))) = type;
 
   // Insert into table
   auto tuple_slot = types_->Insert(txn, redo_record);
@@ -768,7 +759,7 @@ void DatabaseCatalog::InsertType(transaction::TransactionContext *txn, type::Typ
   // Insert into oid index
   auto oid_index_delta = types_oid_index_->GetProjectedRowInitializer().InitializeRow(buffer);
   auto oid_index_offset = types_oid_index_->GetKeyOidToOffsetMap().at(catalog::indexkeycol_oid_t(1));
-  memcpy(oid_index_delta->AccessForceNotNull(oid_index_offset), &type_oid, sizeof(type_oid_t));
+  *(reinterpret_cast<uint32_t *>(oid_index_delta->AccessForceNotNull(oid_index_offset))) = static_cast<uint32_t>(type_oid);
   auto result UNUSED_ATTRIBUTE = types_oid_index_->InsertUnique(txn, *oid_index_delta, tuple_slot);
   TERRIER_ASSERT(result, "Insert into type oid index should always succeed");
 
@@ -777,7 +768,7 @@ void DatabaseCatalog::InsertType(transaction::TransactionContext *txn, type::Typ
   auto name_index_delta = types_name_index_->GetProjectedRowInitializer().InitializeRow(buffer);
   // Populate namespace
   auto name_index_offset = types_name_index_->GetKeyOidToOffsetMap().at(catalog::indexkeycol_oid_t(1));
-  memcpy(name_index_delta->AccessForceNotNull(name_index_offset), &namespace_oid, sizeof(namespace_oid_t));
+  *(reinterpret_cast<uint32_t *>(name_index_delta->AccessForceNotNull(name_index_offset))) = static_cast<uint32_t>(namespace_oid);
   // Populate type name
   name_index_offset = types_name_index_->GetKeyOidToOffsetMap().at(catalog::indexkeycol_oid_t(2));
   *(reinterpret_cast<storage::VarlenEntry *>(name_index_delta->AccessForceNotNull(name_index_offset))) = name_varlen;
@@ -789,7 +780,7 @@ void DatabaseCatalog::InsertType(transaction::TransactionContext *txn, type::Typ
       common::AllocationUtil::AllocateAligned(types_namespace_index_->GetProjectedRowInitializer().ProjectedRowSize());
   auto namespace_index_delta = types_namespace_index_->GetProjectedRowInitializer().InitializeRow(buffer);
   auto namespace_index_offset = types_namespace_index_->GetKeyOidToOffsetMap().at(catalog::indexkeycol_oid_t(1));
-  memcpy(namespace_index_delta->AccessForceNotNull(namespace_index_offset), &namespace_oid, sizeof(namespace_oid_t));
+  *(reinterpret_cast<uint32_t *>(namespace_index_delta->AccessForceNotNull(namespace_index_offset))) = static_cast<uint32_t>(namespace_oid);
   result = types_namespace_index_->Insert(txn, *name_index_delta, tuple_slot);
   TERRIER_ASSERT(result, "Insert into type namespace index should always succeed");
 
