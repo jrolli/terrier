@@ -193,7 +193,7 @@ class DatabaseCatalog {
    * @return whether insertion is successful
    */
   template <typename Column>
-  bool CreateTableAttribute(transaction::TransactionContext *txn, uint32_t class_oid, const Column &col,
+  bool CreateAttribute(transaction::TransactionContext *txn, uint32_t class_oid, const Column &col,
                             const parser::AbstractExpression *default_val);
 
   /**
@@ -205,7 +205,7 @@ class DatabaseCatalog {
    * @return the column from pg_attribute
    */
   template <typename Column>
-  std::unique_ptr<Column> GetTableAttribute(transaction::TransactionContext *txn, storage::VarlenEntry *col_name,
+  std::unique_ptr<Column> GetAttribute(transaction::TransactionContext *txn, storage::VarlenEntry *col_name,
                                             uint32_t class_oid);
 
   /**
@@ -217,7 +217,7 @@ class DatabaseCatalog {
    * @return the column from pg_attribute
    */
   template <typename Column>
-  std::unique_ptr<Column> GetTableAttribute(transaction::TransactionContext *txn, uint32_t col_oid, uint32_t class_oid);
+  std::unique_ptr<Column> GetAttribute(transaction::TransactionContext *txn, uint32_t col_oid, uint32_t class_oid);
 
   /**
    * Get entries from pg_attribute
@@ -227,7 +227,7 @@ class DatabaseCatalog {
    * @return the column from pg_attribute
    */
   template <typename Column>
-  std::vector<std::unique_ptr<Column>> GetTableAttributes(transaction::TransactionContext *txn, uint32_t class_oid);
+  std::vector<std::unique_ptr<Column>> GetAttributes(transaction::TransactionContext *txn, uint32_t class_oid);
 
   /**
    * Delete entries from pg_attribute

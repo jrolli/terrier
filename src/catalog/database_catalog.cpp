@@ -156,7 +156,7 @@ namespace_oid_t DatabaseCatalog::GetNamespaceOid(transaction::TransactionContext
 }
 
 template <typename Column>
-bool DatabaseCatalog::CreateTableAttribute(transaction::TransactionContext *txn, uint32_t class_oid, const Column &col,
+bool DatabaseCatalog::CreateAttribute(transaction::TransactionContext *txn, uint32_t class_oid, const Column &col,
                                            const parser::AbstractExpression *default_val) {
   // Step 1: Insert into the table
   std::vector<col_oid_t> table_oids{ATTNUM_COL_OID, ATTRELID_COL_OID,   ATTNAME_COL_OID, ATTTYPID_COL_OID,
@@ -235,7 +235,7 @@ bool DatabaseCatalog::CreateTableAttribute(transaction::TransactionContext *txn,
 }
 
 template <typename Column>
-std::unique_ptr<Column> DatabaseCatalog::GetTableAttribute(transaction::TransactionContext *txn,
+std::unique_ptr<Column> DatabaseCatalog::GetAttribute(transaction::TransactionContext *txn,
                                                            storage::VarlenEntry *col_name, uint32_t class_oid) {
   // Step 1: Read Index
   std::vector<col_oid_t> table_oids{ATTNUM_COL_OID, ATTNAME_COL_OID,    ATTTYPID_COL_OID,
@@ -272,7 +272,7 @@ std::unique_ptr<Column> DatabaseCatalog::GetTableAttribute(transaction::Transact
 }
 
 template <typename Column>
-std::unique_ptr<Column> DatabaseCatalog::GetTableAttribute(transaction::TransactionContext *txn, uint32_t col_oid,
+std::unique_ptr<Column> DatabaseCatalog::GetAttribute(transaction::TransactionContext *txn, uint32_t col_oid,
                                                            uint32_t class_oid) {
   // Step 1: Read Index
   std::vector<col_oid_t> table_oids{ATTNUM_COL_OID, ATTNAME_COL_OID,    ATTTYPID_COL_OID,
@@ -309,7 +309,7 @@ std::unique_ptr<Column> DatabaseCatalog::GetTableAttribute(transaction::Transact
 }
 
 template <typename Column>
-std::vector<std::unique_ptr<Column>> DatabaseCatalog::GetTableAttributes(transaction::TransactionContext *txn,
+std::vector<std::unique_ptr<Column>> DatabaseCatalog::GetAttributes(transaction::TransactionContext *txn,
                                                                          uint32_t class_oid) {
   // Step 1: Read Index
   std::vector<col_oid_t> table_oids{ATTNUM_COL_OID, ATTNAME_COL_OID,    ATTTYPID_COL_OID,
