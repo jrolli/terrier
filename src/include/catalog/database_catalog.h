@@ -193,8 +193,17 @@ class DatabaseCatalog {
    */
   const IndexSchema &GetIndexSchema(transaction::TransactionContext *txn, index_oid_t index);
 
+ private:
   /**
- * Inform the catalog of where the underlying implementation of the index is
+   * Create a namespace with a given ns oid
+   * @param txn transaction to use
+   * @param name name of the namespace
+   * @param ns_oid oid of the namespace
+   * @return true if creation is successful
+   */
+  bool CreateNamespace(transaction::TransactionContext *txn, const std::string &name, namespace_oid_t ns_oid);
+ /**
+  * Inform the catalog of where the underlying implementation of the index is
  * @param index OID in the catalog
  * @param index_ptr to the memory where the index is
  * @return whether the operation was successful
@@ -204,6 +213,7 @@ class DatabaseCatalog {
  */
   bool SetIndexPointer(transaction::TransactionContext *txn, index_oid_t index, storage::index::Index *index_ptr);
 
+
   /**
    * Obtain the pointer to the index
    * @param index to which we want a pointer
@@ -211,7 +221,61 @@ class DatabaseCatalog {
    */
   common::ManagedPointer<storage::index::Index> GetIndex(transaction::TransactionContext *txn, index_oid_t index);
 
- private:
+  /**
+   * Add entry to pg_attribute
+   * @tparam Column type of column (IndexSchema::Column or Schema::Column)
+   * @param txn txn to use
+   * @param class_oid oid of table or index
+   * @param col column to insert
+   * @param default_val default value
+   * @return whether insertion is successful
+   */
+  template <typename Column>
+  bool CreateAttribute(transaction::TransactionContext *txn, uint32_t class_oid, const Column &col,
+                            const parser::AbstractExpression *default_val);
+
+  /**
+   * Get entry from pg_attribute
+   * @tparam Column type of columns
+   * @param txn txn to use
+   * @param col_name name of the column
+   * @param class_oid oid of table or index
+   * @return the column from pg_attribute
+   */
+  template <typename Column>
+  std::unique_ptr<Column> GetAttribute(transaction::TransactionContext *txn, storage::VarlenEntry *col_name,
+                                            uint32_t class_oid);
+
+  /**
+   * Get entry from pg_attribute
+   * @tparam Column type of columns
+   * @param txn txn to use
+   * @param col_oid oid of the table or index column
+   * @param class_oid oid of table or index
+   * @return the column from pg_attribute
+   */
+  template <typename Column>
+  std::unique_ptr<Column> GetAttribute(transaction::TransactionContext *txn, uint32_t col_oid, uint32_t class_oid);
+
+  /**
+   * Get entries from pg_attribute
+   * @tparam Column type of columns
+   * @param txn txn to use
+   * @param class_oid oid of table or index
+   * @return the column from pg_attribute
+   */
+  template <typename Column>
+  std::vector<std::unique_ptr<Column>> GetAttributes(transaction::TransactionContext *txn, uint32_t class_oid);
+
+  /**
+   * Delete entries from pg_attribute
+   * @tparam Column type of columns
+   * @param txn txn to use
+   * @return the column from pg_attribute
+   */
+  template <typename Column>
+  void DeleteColumns(transaction::TransactionContext *txn, uint32_t class_oid);
+
   storage::SqlTable *namespaces_;
   storage::index::Index *namespaces_oid_index_;
   storage::index::Index *namespaces_name_index_;
@@ -256,6 +320,19 @@ class DatabaseCatalog {
 
   friend class Catalog;
   friend class postgres::Builder;
+
+  /**
+   * Helper method to create index entries into pg_class and pg_indexes.
+   * @param txn txn for the operation
+   * @param ns_oid  OID of the namespace under which the index will fall
+   * @param table_oid table OID on which the new index exists
+   * @param index_oid OID for the index to create
+   * @param name name of the new index
+   * @param schema describing the new index
+   * @return true if creation succeeded, false otherwise
+   */
+  bool CreateIndexEntry(transaction::TransactionContext *const txn,
+  const namespace_oid_t ns_oid, table_oid_t table_oid, const index_oid_t index_oid, const std::string &name, const IndexSchema *schema);
 
   /**
    * Bootstraps the built-in types found in type::Type
