@@ -126,6 +126,8 @@ class IndexSchema {
         is_ready_(false),
         is_live_(true) {}
 
+  IndexSchema() = default;
+
   /**
    * @return the columns which define the index's schema
    */
