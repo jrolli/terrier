@@ -4,6 +4,7 @@
 
 #include "catalog/catalog_defs.h"
 #include "catalog/index_schema.h"
+#include "catalog/postgres/pg_class.h"
 #include "catalog/postgres/pg_type.h"
 #include "catalog/schema.h"
 #include "storage/index/index.h"
@@ -281,5 +282,14 @@ class DatabaseCatalog {
    * @return oid for internal type
    */
   type_oid_t GetTypeOidForType(type::TypeId type);
+
+  /**
+   * Helper function to query the oid and kind from [pg_class](https://www.postgresql.org/docs/9.3/catalog-pg-class.html)
+   * @param txn transaction to query
+   * @param namespace_oid UNUSED
+   * @param name name of the table, index, view, etc.
+   * @return a pair of oid and ClassKind
+   */
+  std::pair<generic_oid_t, postgres::ClassKind> getClassOidKind(transaction::TransactionContext *const txn, const namespace_oid_t ns, const std::string &name);
 };
 }  // namespace terrier::catalog
