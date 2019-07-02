@@ -13,6 +13,7 @@
 #include "storage/sql_table.h"
 #include "transaction/transaction_context.h"
 #include "transaction/transaction_defs.h"
+#include "transaction/transaction_manager.h"
 #include "type/type_id.h"
 
 namespace terrier::catalog {
@@ -31,7 +32,86 @@ table_oid_t DatabaseCatalog::CreateTable(transaction::TransactionContext *txn, n
 
 bool DatabaseCatalog::DeleteTable(transaction::TransactionContext *const txn, const table_oid_t table) {
   std::vector<storage::TupleSlot> index_results;
+  auto oid_pri = classes_oid_index_->GetProjectedRowInitializer();
 
+  auto [pr_init, pr_map] = classes_->InitializerForProjectedRow(PG_CLASS_ALL_COL_OIDS);
+
+  auto *const buffer = common::AllocationUtil::AllocateAligned(pr_init.ProjectedRowSize());
+  auto *key_pr = oid_pri.InitializeRow(buffer);
+
+  // Find the entry using the index
+  *(reinterpret_cast<uint32_t *>(key_pr->AccessForceNotNull(0))) = static_cast<uint32_t>(table);
+  classes_oid_index_->ScanKey(*txn, *key_pr, &index_results);
+  if (index_results.empty()) {
+    // TODO(Matt): we should verify what postgres does in this case
+    // Index scan didn't find anything. This seems weird since we were able to enter this function with a table_oid.
+    // That implies that it was visible to us. Maybe the table was dropped twice by the same txn?
+    delete[] buffer;
+    return false;
+  }
+  TERRIER_ASSERT(index_results.size() == 1, "You got more than one result from a unique index. How did you do that?");
+
+  // Select the tuple out of the table before deletion. We need the attributes to do index deletions later
+  auto *table_pr = pr_init.InitializeRow(buffer);
+  auto result = classes_->Select(txn, index_results[0], table_pr);
+  TERRIER_ASSERT(result, "Select must succeed if the index scan gave a visible result.");
+
+  // Delete from pg_classes table
+  result = classes_->Delete(txn, index_results[0]);
+  if (!result) {
+    // write-write conflict. Someone beat us to this operation.
+    delete[] buffer;
+    return false;
+  }
+
+  // Get the attributes we need for indexes
+  const table_oid_t table_oid =
+      *(reinterpret_cast<const table_oid_t *const>(table_pr->AccessForceNotNull(pr_map[RELOID_COL_OID])));
+  TERRIER_ASSERT(table == table_oid,
+                 "table oid from pg_classes did not match what was found by the index scan from the argument.");
+  const namespace_oid_t ns_oid =
+      *(reinterpret_cast<const namespace_oid_t *const>(table_pr->AccessForceNotNull(pr_map[RELNAMESPACE_COL_OID])));
+  const storage::VarlenEntry name_varlen =
+      *(reinterpret_cast<const storage::VarlenEntry *const>(table_pr->AccessForceNotNull(pr_map[RELNAME_COL_OID])));
+
+  const auto oid_index_init = classes_oid_index_->GetProjectedRowInitializer();
+  const auto name_index_init = classes_name_index_->GetProjectedRowInitializer();
+  const auto ns_index_init = classes_namespace_index_->GetProjectedRowInitializer();
+
+  // Delete from oid_index
+  auto *index_pr = oid_index_init.InitializeRow(buffer);
+  *(reinterpret_cast<uint32_t *const>(index_pr->AccessForceNotNull(0))) = static_cast<uint32_t>(table_oid);
+  classes_oid_index_->Delete(txn, *index_pr, index_results[0]);
+
+  // Delete from name_index
+  index_pr = oid_index_init.InitializeRow(buffer);
+  *(reinterpret_cast<storage::VarlenEntry *const>(index_pr->AccessForceNotNull(0))) = name_varlen;
+  classes_namespace_index_->Delete(txn, *index_pr, index_results[0]);
+
+  // Delete from namespace_index
+  index_pr = oid_index_init.InitializeRow(buffer);
+  *(reinterpret_cast<uint32_t *const>(index_pr->AccessForceNotNull(0))) = static_cast<uint32_t>(ns_oid);
+  classes_namespace_index_->Delete(txn, *index_pr, index_results[0]);
+
+  // Get the attributes we need for delete
+  auto *const schema_ptr =
+      *(reinterpret_cast<const Schema *const *const>(table_pr->AccessForceNotNull(pr_map[REL_SCHEMA_COL_OID])));
+  auto *const table_ptr =
+      *(reinterpret_cast<storage::SqlTable *const *const>(table_pr->AccessForceNotNull(pr_map[REL_PTR_COL_OID])));
+
+  // Everything succeeded from an MVCC standpoint, register deferred
+  // Register a deferred action for the GC with txn manager. See base function comment.
+  auto *const txn_manager = txn->GetTransactionManager();
+  txn->RegisterCommitAction([=]() {
+    txn_manager->DeferAction([=]() {
+      // Defer an action upon commit to delete the table. Delete index will need a double deferral.
+      delete schema_ptr;
+      delete table_ptr;
+    });
+  });
+
+  delete[] buffer;
+  return true;
 }
 
 table_oid_t DatabaseCatalog::GetTableOid(transaction::TransactionContext *const txn, const namespace_oid_t ns,
@@ -371,7 +451,7 @@ bool DatabaseCatalog::CreateTableEntry(transaction::TransactionContext *const tx
   // Write the schema_ptr into the PR
   const auto schema_ptr_offset = pr_map[REL_SCHEMA_COL_OID];
   auto *const schema_ptr_ptr = insert_pr->AccessForceNotNull(schema_ptr_offset);
-  *(reinterpret_cast<uintptr_t *>(schema_ptr_ptr)) = reinterpret_cast<uintptr_t>(schema_ptr_ptr);
+  *(reinterpret_cast<uintptr_t *>(schema_ptr_ptr)) = reinterpret_cast<uintptr_t>(schema_ptr);
 
   // Set table_ptr to NULL because it gets set by execution layer after instantiation
   const auto table_ptr_offset = pr_map[REL_PTR_COL_OID];
