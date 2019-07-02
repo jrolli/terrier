@@ -78,6 +78,81 @@ void DatabaseCatalog::TearDown(transaction::TransactionContext *txn) {
   auto table_iter = classes_->begin();
   while (table_iter != classes_->end()) {
     classes_->Scan(txn, table_iter, pc);
+    for (int i = 0; i < pc->NumTuples()) {
+      switch(classes[i]) {
+        case postgres::ClassKind::REGULAR_TABLE:
+          table_schemas.emplace_back(reinterpret_cast<Schema *>schemas[i]);
+          tables.emplace_back(reinterpret_cast<storage::SqlTable *>objects[i]);
+          break;
+        case postgres::ClassKind::INDEX:
+          index_schemas.emplace_back(reinterpret_cast<IndexSchema *>schemas[i]);
+          indexes.emplace_back(reinterpret_cast<storage::index::Index *>objects[i]);
+          break;
+        default:
+          throw std::runtime_error("Unimplemented destructor needed");
+      }
+    }
+  }
+
+  // pg_attribute (expressions)
+  col_oids.clear();
+  col_oids.emplace_back(ADBIN_COL_OID);
+  [pci, pm] = columns_->InitializerForProjectedColumns(col_oids, 100);
+  pc = pci.Initialize(buffer);
+
+  auto exprs = reinterpret_cast<parser::AbstractExpression **>pc->ColumnStart(0);
+
+  table_iter = columns_->begin();
+  while (table_iter != columns_->end()) {
+    columns_->Scan(txn, table_iter, pc);
+
+    for (int i = 0; i < pc->NumTuples()) {
+      expressions.emplace_back(exprs[i]);
+    }
+  }
+
+  // pg_constraint (expressions)
+  col_oids.clear();
+  col_oids.emplace_back(CONBIN_COL_OID);
+  [pci, pm] = constraints->InitializerForProjectedColumns(col_oids, 100);
+  pc = pci.Initialize(buffer);
+
+  auto exprs = reinterpret_cast<parser::AbstractExpression **>pc->ColumnStart(0);
+
+  table_iter = constraints->begin();
+  while (table_iter != constraints->end()) {
+    constraints->Scan(txn, table_iter, pc);
+
+    for (int i = 0; i < pc->NumTuples()) {
+      expressions.emplace_back(exprs[i]);
+    }
+  }
+
+  // No new transactions can see these object but there may be deferred index
+  // and other operation.  Therefore, we need to defer the deallocation on delete
+  txn->RegisterCommitAction([=, tables{std::move(tables)}, indexes{std::move(indexes)},
+                                table_schemas{std::move(table_schemas)}, index_schemas{std::move(index_schema)},
+                                expressions{std::move(expressions)}] {
+    txn->GetTransactionManager()->DeferAction([=, tables{std::move(tables)}, indexes{std::move(indexes)},
+                                                  table_schemas{std::move(table_schemas)}, index_schemas{std::move(index_schema)},
+                                                  expressions{std::move(expressions)}] {
+      for (auto table : tables)
+        delete table;
+
+      for (auto index : indexes)
+        delete index;
+
+      for (auto schema : table_schemas)
+        delete schema;
+
+      for (auto schema : index_schemas)
+        delete schema;
+
+      for (auto expr : expressions)
+        delete expr;
+    });
+  });
+}
 
 type_oid_t DatabaseCatalog::GetTypeOidForType(type::TypeId type) { return type_oid_t(static_cast<uint8_t>(type)); }
 
@@ -210,79 +285,5 @@ void DatabaseCatalog::BootstrapTypes(transaction::TransactionContext *txn) {
 }
 
 }  // namespace terrier::catalog
-    for (int i = 0; i < pc->NumTuples()) {
-      switch(classes[i]) {
-        case postgres::ClassKind::REGULAR_TABLE:
-          table_schemas.emplace_back(reinterpret_cast<Schema *>schemas[i]);
-          tables.emplace_back(reinterpret_cast<storage::SqlTable *>objects[i]);
-          break;
-        case postgres::ClassKind::INDEX:
-          index_schemas.emplace_back(reinterpret_cast<IndexSchema *>schemas[i]);
-          indexes.emplace_back(reinterpret_cast<storage::index::Index *>objects[i]);
-          break;
-        default:
-          throw std::runtime_error("Unimplemented destructor needed");
-      }
-    }
-  }
 
-  // pg_attribute (expressions)
-  col_oids.clear();
-  col_oids.emplace_back(ADBIN_COL_OID);
-  [pci, pm] = columns_->InitializerForProjectedColumns(col_oids, 100);
-  pc = pci.Initialize(buffer);
-
-  auto exprs = reinterpret_cast<parser::AbstractExpression **>pc->ColumnStart(0);
-
-  table_iter = columns_->begin();
-  while (table_iter != columns_->end()) {
-    columns_->Scan(txn, table_iter, pc);
-
-    for (int i = 0; i < pc->NumTuples()) {
-      expressions.emplace_back(exprs[i]);
-    }
-  }
-
-  // pg_constraint (expressions)
-  col_oids.clear();
-  col_oids.emplace_back(CONBIN_COL_OID);
-  [pci, pm] = constraints->InitializerForProjectedColumns(col_oids, 100);
-  pc = pci.Initialize(buffer);
-
-  auto exprs = reinterpret_cast<parser::AbstractExpression **>pc->ColumnStart(0);
-
-  table_iter = constraints->begin();
-  while (table_iter != constraints->end()) {
-    constraints->Scan(txn, table_iter, pc);
-
-    for (int i = 0; i < pc->NumTuples()) {
-      expressions.emplace_back(exprs[i]);
-    }
-  }
-
-  // No new transactions can see these object but there may be deferred index
-  // and other operation.  Therefore, we need to defer the deallocation on delete
-  txn->RegisterCommitAction([=, tables{std::move(tables)}, indexes{std::move(indexes)},
-                             table_schemas{std::move(table_schemas)}, index_schemas{std::move(index_schema)},
-                             expressions{std::move(expressions)}] {
-    txn->GetTransactionManager()->DeferAction([=, tables{std::move(tables)}, indexes{std::move(indexes)},
-                             table_schemas{std::move(table_schemas)}, index_schemas{std::move(index_schema)},
-                             expressions{std::move(expressions)}] {
-      for (auto table : tables)
-        delete table;
-
-      for (auto index : indexes)
-        delete index;
-
-      for (auto schema : table_schemas)
-        delete schema;
-
-      for (auto schema : index_schemas)
-        delete schema;
-
-      for (auto expr : expressions)
-        delete expr;
-    });
-  });
-}
 } // namespace terrier::catalog
