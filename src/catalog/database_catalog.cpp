@@ -403,12 +403,6 @@ void DatabaseCatalog::DeleteColumns(transaction::TransactionContext *txn, uint32
   delete[] buffer;
 }
 
-// namespace_oid_t DatabaseCatalog::CreateNamespace(transaction::TransactionContext *txn, const std::string &name);
-
-// bool DatabaseCatalog::DeleteNamespace(transaction::TransactionContext *txn, namespace_oid_t ns);
-
-// namespace_oid_t DatabaseCatalog::GetNamespaceOid(transaction::TransactionContext *txn, const std::string &name);
-
 table_oid_t DatabaseCatalog::CreateTable(transaction::TransactionContext *txn, namespace_oid_t ns,
                                          const std::string &name, const Schema &schema) {
   const table_oid_t table_oid = static_cast<table_oid_t>(next_oid_++);
