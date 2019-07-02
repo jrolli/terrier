@@ -8,7 +8,7 @@
 namespace terrier::catalog {
 
 namespace postgres {
-  class Builder;
+class Builder;
 }
 
 /**
@@ -43,8 +43,7 @@ class IndexSchema {
      * @param type_id the varlen type of the column
      * @param max_varlen_size the maximum varlen size
      */
-    Column(type::TypeId type_id, bool nullable, const parser::AbstractExpression &expression,
-                   uint16_t max_varlen_size)
+    Column(type::TypeId type_id, bool nullable, const parser::AbstractExpression &expression, uint16_t max_varlen_size)
         : oid_(INVALID_INDEXKEYCOL_OID), packed_type_(0) {
       TERRIER_ASSERT(type_id == type::TypeId::VARCHAR || type_id == type::TypeId::VARBINARY, "Varlen constructor.");
       SetTypeId(type_id);
@@ -132,6 +131,8 @@ class IndexSchema {
         is_ready_(false),
         is_live_(true) {}
 
+  IndexSchema() = default;
+
   /**
    * @return the columns which define the index's schema
    */
@@ -142,6 +143,7 @@ class IndexSchema {
    * @return requested key column
    */
   const Column &GetColumn(int index) const { return columns_.at(index); }
+
  private:
   const std::vector<Column> columns_;
   bool is_unique_;

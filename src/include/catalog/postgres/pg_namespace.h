@@ -17,6 +17,6 @@ namespace terrier::catalog::postgres {
  * catalog specification and columns of the form "NSP_[name]_COL_OID" are
  * terrier-specific addtions (generally pointers to internal objects).
  */
-#define NSPOID_COL_OID col_oid_t(1)  // INTEGER (pkey)
-#define NSPNAME_COL_OID col_oid_t(2) // VARCHAR
-} // namespace terrier::catalog::postgres
+#define NSPOID_COL_OID col_oid_t(1)   // INTEGER (pkey)
+#define NSPNAME_COL_OID col_oid_t(2)  // VARCHAR
+}  // namespace terrier::catalog::postgres

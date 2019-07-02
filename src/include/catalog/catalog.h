@@ -1,4 +1,4 @@
-  #pragma once
+#pragma once
 
 #include <vector>
 
@@ -8,6 +8,8 @@
 #include "transaction/transaction_defs.h"
 
 namespace terrier::catalog {
+
+class CatalogAccessor;
 
 /**
  * The catalog stores all of the metadata about user tables and user defined
@@ -100,7 +102,8 @@ class Catalog {
    * @return DatabaseCatalog object which has catalog information for the
    *   specific database
    */
-  common::ManagedPointer<DatabaseCatalog> GetDatabaseCatalog(transaction::TransactionContext *txn, const std::string &name);
+  common::ManagedPointer<DatabaseCatalog> GetDatabaseCatalog(transaction::TransactionContext *txn,
+                                                             const std::string &name);
 
   /**
    * Creates a new accessor into the catalog which will handle transactionality and sequencing of catalog operations.
@@ -108,12 +111,12 @@ class Catalog {
    * @param database in which this transaction is scoped
    * @return a CatalogAccessor object for use with this transaction
    */
-  CatalogAccessor GetAccessor(transaction::TransactionContext *txn, database_oid_t database);
+  CatalogAccessor *GetAccessor(transaction::TransactionContext *txn, db_oid_t database);
 
  private:
   transaction::TransactionManager *txn_manager_;
   storage::BlockStore *catalog_block_store_;
-  std::atomic<db_oid_t> next_oid_
+  std::atomic<db_oid_t> next_oid_;
 
   storage::SqlTable *databases_;
   storage::index::Index *databases_name_index_;
@@ -127,7 +130,8 @@ class Catalog {
    * @param dbc database catalog object for the new database
    * @return true if successful, otherwise false
    */
-  bool CreateDatabaseEntry(transaction::TransactionContext *txn, db_oid_t db, const std::string &name, DatabaseCatalog *dbc);
+  bool CreateDatabaseEntry(transaction::TransactionContext *txn, db_oid_t db, const std::string &name,
+                           DatabaseCatalog *dbc);
 
   /**
    * Deletes a database entry without scheduling the catalog object for destruction
@@ -145,4 +149,4 @@ class Catalog {
    */
   transaction::Action DeallocateDatabaseCatalog(DatabaseCatalog *dbc);
 };
-} // namespace terrier::catalog
+}  // namespace terrier::catalog
