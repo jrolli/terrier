@@ -73,6 +73,13 @@ class IndexSchema {
      */
     bool IsNullable() const { return static_cast<bool>(packed_type_ & MASK_NULLABLE); }
 
+    /**
+     * Note(Amadou): I added this to make sure this has the same name as Schema::Column
+     * This way we can make templatized classes can use both classes interchangeably.
+     * @return true if this column is nullable
+     */
+    bool GetNullable() const { return static_cast<bool>(packed_type_ & MASK_NULLABLE); }
+
    private:
     static constexpr uint32_t MASK_VARLEN = 0x00FFFF00;
     static constexpr uint32_t MASK_NULLABLE = 0x00000080;

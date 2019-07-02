@@ -113,6 +113,7 @@ db_oid_t Catalog::GetDatabaseOid(transaction::TransactionContext *txn, const std
   auto *varlen = reinterpret_cast<storage::VarlenEntry *>pr->AccessForceNotNull(0);
   *varlen = name_varlen;
 
+  // TODO(Amadou): This should be database_name_index_ ???
   databases_oid_index_->ScanKey(txn, pr, &index_results);
   if (index_results.empty())
   {
