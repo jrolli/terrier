@@ -726,6 +726,7 @@ bool DatabaseCatalog::DeleteIndex(transaction::TransactionContext *txn, index_oi
   classes_namespace_index_->Delete(txn, *index_pr, index_results[0]);
 
   // Get the attributes we need for the deferred delete
+  // TODO(Gus, John): See TODO in deferred actions lambda below
 //  auto *const schema_ptr =
 //      *(reinterpret_cast<const index::IndexSchema *const *const>(table_pr->AccessForceNotNull(pr_map[REL_SCHEMA_COL_OID])));
   auto *const index_ptr =
@@ -791,6 +792,7 @@ bool DatabaseCatalog::DeleteIndex(transaction::TransactionContext *txn, index_oi
         // Defer an action upon commit to delete the table. Delete index needs a double deferr]al because we need to
         // guarantee that all the defered actions of transactions that are currently running are executed BEFORE we
         // actually delete the index, as those defered actions could also touch the index.
+        // TODO(Gus, John): If the catalog performs a deep copy of the index schema when we call CreateIndex, then we need to delete the schema here. Currently the caller gives us an index pointer which we store in the catalog, so I'm not going to delete it here.
         // delete schema_ptr;
         delete index_ptr;
       });
