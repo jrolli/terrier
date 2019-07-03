@@ -603,34 +603,12 @@ bool DatabaseCatalog::SetTablePointer(transaction::TransactionContext *txn, tabl
  */
 common::ManagedPointer<storage::SqlTable> DatabaseCatalog::GetTable(transaction::TransactionContext *txn,
                                                                     table_oid_t table) {
-  std::vector<storage::TupleSlot> index_results;
-  auto oid_pri = classes_oid_index_->GetProjectedRowInitializer();
-
-  auto [pr_init, pr_map] = classes_->InitializerForProjectedRow({REL_PTR_COL_OID});
-
-  auto *const buffer = common::AllocationUtil::AllocateAligned(pr_init.ProjectedRowSize());
-  auto *key_pr = oid_pri.InitializeRow(buffer);
-
-  // Find the entry using the index
-  *(reinterpret_cast<uint32_t *>(key_pr->AccessForceNotNull(0))) = static_cast<uint32_t>(table);
-  classes_oid_index_->ScanKey(*txn, *key_pr, &index_results);
-  if (index_results.empty()) {
-    // TODO(Matt): we should verify what postgres does in this case
-    // Index scan didn't find anything. This seems weird since we were able to enter this function with a table_oid.
-    // That implies that it was visible to us. Maybe the table was dropped or renamed twice by the same txn?
-    delete[] buffer;
-    return common::ManagedPointer<storage::SqlTable>(nullptr);
+  auto ptr_pair = GetClassPtrKind(txn, static_cast<uint32_t>(table));
+  if (ptr_pair.second != postgres::ClassKind::REGULAR_TABLE) {
+    // User called GetTable with an OID for an object that doesn't have type REGULAR_TABLE
+    return common::ManagedPointer(nullptr);
   }
-  TERRIER_ASSERT(index_results.size() == 1, "You got more than one result from a unique index. How did you do that?");
-
-  auto *select_pr = pr_init.InitializeRow(buffer);
-  const auto result UNUSED_ATTRIBUTE = classes_->Select(txn, index_results[0], select_pr);
-  TERRIER_ASSERT(result, "Index already verified visibility. This shouldn't fail.");
-
-  auto *const table_ptr = *(reinterpret_cast<storage::SqlTable *const *const>(select_pr->AccessForceNotNull(0)));
-
-  delete[] buffer;
-  return common::ManagedPointer(table_ptr);
+  return common::ManagedPointer(reinterpret_cast<storage::SqlTable *>(ptr_pair.first));
 }
 
 // bool DatabaseCatalog::RenameTable(transaction::TransactionContext *txn, table_oid_t table, const std::string &name);
@@ -650,6 +628,16 @@ index_oid_t DatabaseCatalog::CreateIndex(transaction::TransactionContext *txn, n
 }
 
 // bool DatabaseCatalog::DeleteIndex(transaction::TransactionContext *txn, index_oid_t index);
+
+common::ManagedPointer<storage::index::Index> DatabaseCatalog::GetIndex(transaction::TransactionContext *txn,
+                                                                        index_oid_t index) {
+  auto ptr_pair = GetClassPtrKind(txn, static_cast<uint32_t>(index));
+  if (ptr_pair.second != postgres::ClassKind::INDEX) {
+    // User called GetTable with an OID for an object that doesn't have type REGULAR_TABLE
+    return common::ManagedPointer(nullptr);
+  }
+  return common::ManagedPointer(reinterpret_cast<storage::index::Index *>(ptr_pair.first));
+}
 
 index_oid_t DatabaseCatalog::GetIndexOid(transaction::TransactionContext *txn, namespace_oid_t ns, const std::string &name) {
   auto oid_pair = getClassOidKind(txn, ns, name);
@@ -1142,6 +1130,41 @@ bool DatabaseCatalog::CreateTableEntry(transaction::TransactionContext *const tx
   delete[] index_buffer;
 
   return true;
+}
+
+std::pair<void *, postgres::ClassKind> DatabaseCatalog::GetClassPtrKind(transaction::TransactionContext *txn,
+                                                                        uint32_t oid) {
+  std::vector<storage::TupleSlot> index_results;
+
+  // Initialize both PR initializers, allocate buffer using size of largest one so we can reuse buffer
+  auto oid_pri = classes_oid_index_->GetProjectedRowInitializer();
+  auto [pr_init, pr_map] = classes_->InitializerForProjectedRow({REL_PTR_COL_OID, RELKIND_COL_OID});
+  auto buffer_size = std::max(oid_pri.ProjectedRowSize(), pr_init.ProjectedRowSize());
+
+  auto *const buffer = common::AllocationUtil::AllocateAligned(buffer_size);
+  auto *key_pr = oid_pri.InitializeRow(buffer);
+
+  // Find the entry using the index
+  *(reinterpret_cast<uint32_t *>(key_pr->AccessForceNotNull(0))) = oid;
+  classes_oid_index_->ScanKey(*txn, *key_pr, &index_results);
+  if (index_results.empty()) {
+    // TODO(Matt): we should verify what postgres does in this case
+    // Index scan didn't find anything. This seems weird since we were able to enter this function with an oid.
+    // That implies that it was visible to us. Maybe the object was dropped or renamed twice by the same txn?
+    delete[] buffer;
+    return {nullptr, postgres::ClassKind::REGULAR_TABLE};
+  }
+  TERRIER_ASSERT(index_results.size() == 1, "You got more than one result from a unique index. How did you do that?");
+
+  auto *select_pr = pr_init.InitializeRow(buffer);
+  const auto result UNUSED_ATTRIBUTE = classes_->Select(txn, index_results[0], select_pr);
+  TERRIER_ASSERT(result, "Index already verified visibility. This shouldn't fail.");
+
+  auto *const ptr = *(reinterpret_cast<void *const *const>(select_pr->AccessForceNotNull(0)));
+  auto kind = *(reinterpret_cast<const postgres::ClassKind *const>(select_pr->AccessForceNotNull(1)));
+
+  delete[] buffer;
+  return {ptr, kind};
 }
 
 }  // namespace terrier::catalog

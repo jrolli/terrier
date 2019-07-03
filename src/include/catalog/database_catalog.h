@@ -368,5 +368,14 @@ class DatabaseCatalog {
    * @return a pair of oid and ClassKind
    */
   std::pair<uint32_t, postgres::ClassKind> getClassOidKind(transaction::TransactionContext *txn, namespace_oid_t ns_oid, const std::string &name);
+
+  /**
+   * Helper function to query an object pointer form pg_class
+   * @param txn transaction to query
+   * @param oid oid to object
+   * @return pair of ptr to and ClassKind of object requested. ptr will be nullptr if no entry was found for the given oid
+   */
+  std::pair<void*, postgres::ClassKind> GetClassPtrKind(transaction::TransactionContext *txn, uint32_t oid);
+
 };
 }  // namespace terrier::catalog
