@@ -153,7 +153,7 @@ class DatabaseCatalog {
    * @param table being queried
    * @return vector of OIDs for all of the indexes on this table
    */
-  std::vector<index_oid_t> GetIndexes(transaction::TransactionContext *txn, table_oid_t );
+  std::vector<index_oid_t> GetIndexes(transaction::TransactionContext *txn, table_oid_t oid);
 
   /**
    * Create the catalog entries for a new index.
