@@ -101,6 +101,7 @@ bool DatabaseCatalog::DeleteNamespace(transaction::TransactionContext *txn, name
   auto name_varlen = *reinterpret_cast<storage::VarlenEntry *>(pr->AccessForceNotNull(table_pm[NSPNAME_COL_OID]));
 
   // Step 3: Delete from table
+  txn->StageDelete(db_oid_, NAMESPACE_TABLE_OID, index_results[0]);
   if (!namespaces_->Delete(txn, index_results[0])) {
     // Someone else has a write-lock
     delete[] buffer;
@@ -409,7 +410,6 @@ table_oid_t DatabaseCatalog::CreateTable(transaction::TransactionContext *txn, n
   return CreateTableEntry(txn, table_oid, ns, name, schema) ? table_oid : INVALID_TABLE_OID;
 }
 
-// TODO(Gus): We need to call StageDelete
 bool DatabaseCatalog::DeleteTable(transaction::TransactionContext *const txn, const table_oid_t table) {
   std::vector<storage::TupleSlot> index_results;
   auto oid_pri = classes_oid_index_->GetProjectedRowInitializer();
@@ -438,6 +438,7 @@ bool DatabaseCatalog::DeleteTable(transaction::TransactionContext *const txn, co
   TERRIER_ASSERT(result, "Select must succeed if the index scan gave a visible result.");
 
   // Delete from pg_classes table
+  txn->StageDelete(db_oid_, CLASS_TABLE_OID, index_results[0]);
   result = classes_->Delete(txn, index_results[0]);
   if (!result) {
     // write-write conflict. Someone beat us to this operation.
@@ -658,7 +659,6 @@ index_oid_t DatabaseCatalog::CreateIndex(transaction::TransactionContext *txn, n
   return CreateIndexEntry(txn, ns, table, index_oid, name, schema) ? index_oid : INVALID_INDEX_OID;
 }
 
-// TODO(Gus): We need to call StageDelete
 bool DatabaseCatalog::DeleteIndex(transaction::TransactionContext *txn, index_oid_t index) {
   std::vector<storage::TupleSlot> index_results;
   // Initialize PRs for pg_class
@@ -688,6 +688,7 @@ bool DatabaseCatalog::DeleteIndex(transaction::TransactionContext *txn, index_oi
   TERRIER_ASSERT(result, "Select must succeed if the index scan gave a visible result.");
 
   // Delete from pg_classes table
+  txn->StageDelete(db_oid_, CLASS_TABLE_OID, index_results[0]);
   result = classes_->Delete(txn, index_results[0]);
   if (!result) {
     // write-write conflict. Someone beat us to this operation.
@@ -765,6 +766,7 @@ bool DatabaseCatalog::DeleteIndex(transaction::TransactionContext *txn, index_oi
                  "index oid from pg_index did not match what was found by the index scan from the argument.");
 
   // Delete from pg_index table
+  txn->StageDelete(db_oid_, INDEX_TABLE_OID, index_results[0]);
   result = indexes_->Delete(txn, index_results[0]);
   TERRIER_ASSERT(result, "Delete from pg_index should always succeed as write-write conflicts are detected during delete from pg_class");
 
