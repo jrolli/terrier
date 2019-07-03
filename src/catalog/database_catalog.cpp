@@ -416,7 +416,7 @@ bool DatabaseCatalog::DeleteTable(transaction::TransactionContext *const txn, co
 
   auto [pr_init, pr_map] = classes_->InitializerForProjectedRow(PG_CLASS_ALL_COL_OIDS);
 
-  TERRIER_ASSERT(pr_init.ProjectedRowSize() > oid_pri.ProjectedRowSize(), "Buffer must be allocated for largest ProjectedRow size");
+  TERRIER_ASSERT(pr_init.ProjectedRowSize() >= oid_pri.ProjectedRowSize(), "Buffer must be allocated for largest ProjectedRow size");
   auto *const buffer = common::AllocationUtil::AllocateAligned(pr_init.ProjectedRowSize());
   auto *key_pr = oid_pri.InitializeRow(buffer);
 
@@ -573,7 +573,7 @@ bool DatabaseCatalog::SetTablePointer(transaction::TransactionContext *txn, tabl
   auto oid_pri = classes_oid_index_->GetProjectedRowInitializer();
 
   auto [pr_init, pr_map] = classes_->InitializerForProjectedRow({REL_PTR_COL_OID});
-
+  TERRIER_ASSERT(pr_init.ProjectedRowSize() >= oid_pri.ProjectedRowSize(), "Buffer must allocated to fit largest PR");
   auto *const buffer = common::AllocationUtil::AllocateAligned(pr_init.ProjectedRowSize());
   auto *key_pr = oid_pri.InitializeRow(buffer);
 
@@ -629,9 +629,8 @@ std::vector<index_oid_t> DatabaseCatalog::GetIndexes(transaction::TransactionCon
   // Initialize PR for index scan
   auto oid_pri = indexes_table_index_->GetProjectedRowInitializer();
   auto [pr_init, pr_map] = indexes_->InitializerForProjectedRow({INDOID_COL_OID});
-  // TODO(gus): change this to not be max, itll be faster
-  auto buffer_size = std::max(oid_pri.ProjectedRowSize(), pr_init.ProjectedRowSize());
-  auto *const buffer = common::AllocationUtil::AllocateAligned(buffer_size);
+  TERRIER_ASSERT(pr_init.ProjectedRowSize() >= oid_pri.ProjectedRowSize(), "Buffer must be allocated to fit largest PR");
+  auto *const buffer = common::AllocationUtil::AllocateAligned(pr_init.ProjectedRowSize());
 
   // Find all entries for the given table using the index
   auto *key_pr = oid_pri.InitializeRow(buffer);
@@ -666,7 +665,7 @@ bool DatabaseCatalog::DeleteIndex(transaction::TransactionContext *txn, index_oi
   auto [class_pr_init, class_pr_map] = classes_->InitializerForProjectedRow(PG_CLASS_ALL_COL_OIDS);
 
   // Allocate buffer for largest PR
-  TERRIER_ASSERT(class_pr_init.ProjectedRowSize() > class_oid_pri.ProjectedRowSize(), "Buffer must be allocated for largest ProjectedRow size");
+  TERRIER_ASSERT(class_pr_init.ProjectedRowSize() >= class_oid_pri.ProjectedRowSize(), "Buffer must be allocated for largest ProjectedRow size");
   auto *const buffer = common::AllocationUtil::AllocateAligned(class_pr_init.ProjectedRowSize());
   auto *key_pr = class_oid_pri.InitializeRow(buffer);
 
@@ -738,7 +737,7 @@ bool DatabaseCatalog::DeleteIndex(transaction::TransactionContext *txn, index_oi
   auto index_oid_pr = indexes_oid_index_->GetProjectedRowInitializer();
   auto index_table_pr = indexes_table_index_->GetProjectedRowInitializer();
   auto [index_pr_init, index_pr_map] = indexes_->InitializerForProjectedRow({INDOID_COL_OID, INDRELID_COL_OID});
-  TERRIER_ASSERT((class_pr_init.ProjectedRowSize() > index_pr_init.ProjectedRowSize()) && (class_pr_init.ProjectedRowSize() > index_oid_pr.ProjectedRowSize()) && (class_pr_init.ProjectedRowSize() > index_table_pr.ProjectedRowSize()), "Buffer must be allocated for largest ProjectedRow size");
+  TERRIER_ASSERT((class_pr_init.ProjectedRowSize() >= index_pr_init.ProjectedRowSize()) && (class_pr_init.ProjectedRowSize() >= index_oid_pr.ProjectedRowSize()) && (class_pr_init.ProjectedRowSize() >= index_table_pr.ProjectedRowSize()), "Buffer must be allocated for largest ProjectedRow size");
 
   // Find the entry in pg_index using the oid index
   index_results.clear();
@@ -983,8 +982,8 @@ bool DatabaseCatalog::CreateIndexEntry(transaction::TransactionContext *const tx
   const auto class_oid_index_init = classes_oid_index_->GetProjectedRowInitializer();
   const auto class_name_index_init = classes_name_index_->GetProjectedRowInitializer();
   const auto class_ns_index_init = classes_namespace_index_->GetProjectedRowInitializer();
-  TERRIER_ASSERT((class_name_index_init.ProjectedRowSize() > class_oid_index_init.ProjectedRowSize()) &&
-                          (class_name_index_init.ProjectedRowSize() > class_ns_index_init.ProjectedRowSize()),
+  TERRIER_ASSERT((class_name_index_init.ProjectedRowSize() >= class_oid_index_init.ProjectedRowSize()) &&
+                          (class_name_index_init.ProjectedRowSize() >= class_ns_index_init.ProjectedRowSize()),
   "Index buffer must be allocated based on the largest PR initializer");
   auto *index_buffer = common::AllocationUtil::AllocateAligned(class_name_index_init.ProjectedRowSize());
 
@@ -1013,8 +1012,6 @@ bool DatabaseCatalog::CreateIndexEntry(transaction::TransactionContext *const tx
   *(reinterpret_cast<uint32_t *>(index_pr->AccessForceNotNull(0))) = static_cast<uint32_t>(ns_oid);
   const auto result UNUSED_ATTRIBUTE = classes_namespace_index_->Insert(txn, *index_pr, class_tuple_slot);
   TERRIER_ASSERT(!result, "Insertion into non-unique namespace index failed.");
-
-  delete[] index_buffer;
 
   // Next, insert index metadata into pg_index
   [pr_init, pr_map] = indexes_->InitializerForProjectedRow(PG_INDEX_ALL_COL_OIDS);
@@ -1047,10 +1044,7 @@ bool DatabaseCatalog::CreateIndexEntry(transaction::TransactionContext *const tx
   // Get PR initializers and allocate a buffer from the largest one
   const auto indexes_oid_index_init = indexes_oid_index_->GetProjectedRowInitializer();
   const auto indexes_table_index_init = indexes_table_index_->GetProjectedRowInitializer();
-  // TODO(gus): change this to not be max, itll be faster
-  // TODO(gus): we dont need to allocate this here, we should reuse the one above
-  auto buffer_size = std::max(indexes_oid_index_init.ProjectedRowSize(), indexes_table_index_init.ProjectedRowSize());
-  index_buffer = common::AllocationUtil::AllocateAligned(buffer_size);
+  TERRIER_ASSERT((class_name_index_init.ProjectedRowSize() >= indexes_oid_index_init.ProjectedRowSize()) && (class_name_index_init.ProjectedRowSize() > indexes_table_index_init.ProjectedRowSize()), "Index buffer must be allocated based on the largest PR initializer");
 
   // Insert into indexes_oid_index
   index_pr = indexes_oid_index_init.InitializeRow(index_buffer);
@@ -1137,12 +1131,10 @@ void DatabaseCatalog::InsertType(transaction::TransactionContext *txn, type::Typ
   auto tuple_slot = types_->Insert(txn, redo_record);
 
   // Allocate buffer of largest size needed
-  uint32_t buffer_size = 0;
-  // TODO(gus): change this to not be max, itll be faster
-  buffer_size = std::max(buffer_size, types_oid_index_->GetProjectedRowInitializer().ProjectedRowSize());
-  buffer_size = std::max(buffer_size, types_name_index_->GetProjectedRowInitializer().ProjectedRowSize());
-  buffer_size = std::max(buffer_size, types_namespace_index_->GetProjectedRowInitializer().ProjectedRowSize());
-  byte *buffer = common::AllocationUtil::AllocateAligned(buffer_size);
+  TERRIER_ASSERT((types_name_index_->GetProjectedRowInitializer().ProjectedRowSize() >= types_oid_index_->GetProjectedRowInitializer().ProjectedRowSize()) &&
+      (types_name_index_->GetProjectedRowInitializer().ProjectedRowSize() >= types_namespace_index_->GetProjectedRowInitializer().ProjectedRowSize()),
+                 "Buffer must be allocated for largest ProjectedRow size");
+  byte *buffer = common::AllocationUtil::AllocateAligned(types_name_index_->GetProjectedRowInitializer().ProjectedRowSize());
 
   // Insert into oid index
   auto oid_index_delta = types_oid_index_->GetProjectedRowInitializer().InitializeRow(buffer);
@@ -1152,7 +1144,6 @@ void DatabaseCatalog::InsertType(transaction::TransactionContext *txn, type::Typ
   TERRIER_ASSERT(result, "Insert into type oid index should always succeed");
 
   // Insert into (namespace_oid, name) index
-  buffer = common::AllocationUtil::AllocateAligned(types_name_index_->GetProjectedRowInitializer().ProjectedRowSize());
   auto name_index_delta = types_name_index_->GetProjectedRowInitializer().InitializeRow(buffer);
   // Populate namespace
   auto name_index_offset = types_name_index_->GetKeyOidToOffsetMap().at(catalog::indexkeycol_oid_t(1));
@@ -1164,15 +1155,12 @@ void DatabaseCatalog::InsertType(transaction::TransactionContext *txn, type::Typ
   TERRIER_ASSERT(result, "Insert into type name index should always succeed");
 
   // Insert into (non-unique) namespace oid index
-  buffer =
-      common::AllocationUtil::AllocateAligned(types_namespace_index_->GetProjectedRowInitializer().ProjectedRowSize());
   auto namespace_index_delta = types_namespace_index_->GetProjectedRowInitializer().InitializeRow(buffer);
   auto namespace_index_offset = types_namespace_index_->GetKeyOidToOffsetMap().at(catalog::indexkeycol_oid_t(1));
   *(reinterpret_cast<uint32_t *>(namespace_index_delta->AccessForceNotNull(namespace_index_offset))) = static_cast<uint32_t>(namespace_oid);
   result = types_namespace_index_->Insert(txn, *name_index_delta, tuple_slot);
   TERRIER_ASSERT(result, "Insert into type namespace index should always succeed");
 
-  // Clean up buffer
   delete[] buffer;
 }
 
@@ -1318,13 +1306,11 @@ std::pair<void *, postgres::ClassKind> DatabaseCatalog::GetClassPtrKind(transact
   // Initialize both PR initializers, allocate buffer using size of largest one so we can reuse buffer
   auto oid_pri = classes_oid_index_->GetProjectedRowInitializer();
   auto [pr_init, pr_map] = classes_->InitializerForProjectedRow({REL_PTR_COL_OID, RELKIND_COL_OID});
-  // TODO(gus): change this to not be max, itll be faster
-  auto buffer_size = std::max(oid_pri.ProjectedRowSize(), pr_init.ProjectedRowSize());
-
-  auto *const buffer = common::AllocationUtil::AllocateAligned(buffer_size);
-  auto *key_pr = oid_pri.InitializeRow(buffer);
+ TERRIER_ASSERT(pr_init.ProjectedRowSize() >= oid_pri.ProjectedRowSize(), "Buffer must be allocated to fit largest PR");
+  auto *const buffer = common::AllocationUtil::AllocateAligned(pr_init.ProjectedRowSize());
 
   // Find the entry using the index
+  auto *key_pr = oid_pri.InitializeRow(buffer);
   *(reinterpret_cast<uint32_t *>(key_pr->AccessForceNotNull(0))) = oid;
   classes_oid_index_->ScanKey(*txn, *key_pr, &index_results);
   if (index_results.empty()) {
