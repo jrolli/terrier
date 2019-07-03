@@ -619,7 +619,35 @@ common::ManagedPointer<storage::SqlTable> DatabaseCatalog::GetTable(transaction:
 
 // std::vector<constraint_oid_t> DatabaseCatalog::GetConstraints(transaction::TransactionContext *txn, table_oid_t);
 
-// std::vector<index_oid_t> DatabaseCatalog::GetIndexes(transaction::TransactionContext *txn, table_oid_t);
+std::vector<index_oid_t> DatabaseCatalog::GetIndexes(transaction::TransactionContext *txn, table_oid_t oid) {
+  std::vector<index_oid_t> index_oids;
+  std::vector<storage::TupleSlot> index_scan_results;
+
+  // Initialize PR for index scan
+  auto oid_pri = indexes_table_index_->GetProjectedRowInitializer();
+  auto [pr_init, pr_map] = indexes_->InitializerForProjectedRow({INDOID_COL_OID});
+  auto buffer_size = std::max(oid_pri.ProjectedRowSize(), pr_init.ProjectedRowSize());
+  auto *const buffer = common::AllocationUtil::AllocateAligned(buffer_size);
+
+  // Find all entries for the given table using the index
+  auto *key_pr = oid_pri.InitializeRow(buffer);
+  *(reinterpret_cast<uint32_t *>(key_pr->AccessForceNotNull(0))) = static_cast<uint32_t>(oid);
+  indexes_table_index_->ScanKey(*txn, *key_pr, &index_scan_results);
+
+  // If we found no indexes, return an empty list
+  if (index_scan_results.empty()) {
+    return index_oids;
+  }
+
+  auto *select_pr = pr_init.InitializeRow(buffer);
+  for (auto &slot : index_scan_results) {
+    const auto result UNUSED_ATTRIBUTE = classes_->Select(txn, slot, select_pr);
+    TERRIER_ASSERT(result, "Index already verified visibility. This shouldn't fail.");
+    index_oids.emplace_back(*(reinterpret_cast<index_oid_t *>(select_pr->AccessForceNotNull(0))));
+  }
+  delete[] buffer;
+  return index_oids;
+}
 
 index_oid_t DatabaseCatalog::CreateIndex(transaction::TransactionContext *txn, namespace_oid_t ns, const std::string &name,
                                         table_oid_t table, IndexSchema *schema) {
