@@ -193,6 +193,19 @@ class PACKED ProjectedRow {
     }
   }
 
+  /**
+   * The number of header fields present in the notional struct before the values:
+   * struct pr {
+   *   uint32_t size
+   *   uint16_t num_cols
+   *   uint16_t col_ids[num_cols] // padded to sizeof(uint32_t)
+   *   uint32_t offsetss[num_cols]
+   *   uint8_t  nullmap[ceiling(num_cols / 8)] // padded to sizeof type for col_ids[0]
+   *   [... values ...]
+   * }
+   */
+  static const int NumHeaderFields = 5;
+
  private:
   friend class ProjectedRowInitializer;
   friend class LogSerializerTask;

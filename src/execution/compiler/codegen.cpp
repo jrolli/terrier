@@ -182,6 +182,16 @@ ast::Expr *CodeGen::Int32Type() const { return BuiltinType(ast::BuiltinType::Int
 
 ast::Expr *CodeGen::Int64Type() const { return BuiltinType(ast::BuiltinType::Int64); }
 
+ast::Expr *CodeGen::Uint8Type() const { return BuiltinType(ast::BuiltinType::Uint8); }
+
+ast::Expr *CodeGen::Uint16Type() const { return BuiltinType(ast::BuiltinType::Uint16); }
+
+ast::Expr *CodeGen::Uint32Type() const { return BuiltinType(ast::BuiltinType::Uint32); }
+
+ast::Expr *CodeGen::Uint64Type() const { return BuiltinType(ast::BuiltinType::Uint64); }
+
+ast::Expr *CodeGen::Uint128Type() const { return BuiltinType(ast::BuiltinType::Uint128); }
+
 ast::Expr *CodeGen::Float32Type() const { return BuiltinType(ast::BuiltinType::Float32); }
 
 ast::Expr *CodeGen::Float64Type() const { return BuiltinType(ast::BuiltinType::Float64); }

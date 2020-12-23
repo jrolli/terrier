@@ -176,6 +176,31 @@ class CodeGen {
   [[nodiscard]] ast::Expr *Int64Type() const;
 
   /**
+   * @return The type representation for an 8-bit unsigned integer (i.e., uint8)
+   */
+  [[nodiscard]] ast::Expr *Uint8Type() const;
+
+  /**
+   * @return The type representation for an 16-bit unsigned integer (i.e., uint16)
+   */
+  [[nodiscard]] ast::Expr *Uint16Type() const;
+
+  /**
+   * @return The type representation for an 32-bit unsigned integer (i.e., uint32)
+   */
+  [[nodiscard]] ast::Expr *Uint32Type() const;
+
+  /**
+   * @return The type representation for an 64-bit unsigned integer (i.e., uint64)
+   */
+  [[nodiscard]] ast::Expr *Uint64Type() const;
+
+  /**
+   * @return The type representation for an 64-bit unsigned integer (i.e., uint64)
+   */
+  [[nodiscard]] ast::Expr *Uint128Type() const;
+
+  /**
    * @return The type representation for an 32-bit floating point number (i.e., float32)
    */
   [[nodiscard]] ast::Expr *Float32Type() const;

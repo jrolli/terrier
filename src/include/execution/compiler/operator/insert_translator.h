@@ -31,6 +31,8 @@ class InsertTranslator : public OperatorTranslator, public PipelineDriver {
    */
   InsertTranslator(const planner::InsertPlanNode &plan, CompilationContext *compilation_context, Pipeline *pipeline);
 
+  void DefineHelperStructs(util::RegionVector<ast::StructDecl *> *decls) override;
+
   /**
    * Does nothing.
    * @param decls The top-level declarations.
@@ -95,6 +97,12 @@ class InsertTranslator : public OperatorTranslator, public PipelineDriver {
   // Insert into an index of this table.
   void GenIndexInsert(WorkContext *context, FunctionBuilder *builder, const catalog::index_oid_t &index_oid) const;
 
+  // Generates the struct definition for the storage-layer block
+  ast::StructDecl *GenerateBlockStruct() const;
+
+  // Generates the struct definition for the inserting projected row
+  ast::StructDecl *GeneratePRStruct() const;
+
   // Gets all the column oids in a schema.
   static std::vector<catalog::col_oid_t> AllColOids(const catalog::Schema &table_schema);
 
@@ -107,6 +115,12 @@ class InsertTranslator : public OperatorTranslator, public PipelineDriver {
   // Column oids that we are inserting on.
   ast::Identifier col_oids_;
 
+  // The TPL struct definition for the table's block layout
+  ast::Identifier block_type_;
+
+  // The TPL struct definition for a projected row
+  ast::Identifier pr_type_;
+
   // Schema of the table that we are inserting on.
   const catalog::Schema &table_schema_;
 
@@ -115,7 +129,7 @@ class InsertTranslator : public OperatorTranslator, public PipelineDriver {
 
   // Projection map of the table that we are inserting into.
   // This maps column oids to offsets in a projected row.
-  storage::ProjectionMap table_pm_;
+  const storage::ColumnMap &table_cm_;
 
   // The number of inserts that are performed.
   StateDescriptor::Entry num_inserts_;

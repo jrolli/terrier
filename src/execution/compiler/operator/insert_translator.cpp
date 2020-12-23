@@ -4,6 +4,7 @@
 
 #include "catalog/catalog_accessor.h"
 #include "catalog/schema.h"
+#include "common/macros.h"
 #include "execution/ast/builtins.h"
 #include "execution/ast/type.h"
 #include "execution/compiler/codegen.h"
@@ -14,6 +15,8 @@
 #include "planner/plannodes/insert_plan_node.h"
 #include "storage/index/index.h"
 #include "storage/sql_table.h"
+#include "storage/storage_defs.h"
+#include "storage/storage_util.h"
 
 namespace noisepage::execution::compiler {
 InsertTranslator::InsertTranslator(const planner::InsertPlanNode &plan, CompilationContext *compilation_context,
@@ -22,12 +25,14 @@ InsertTranslator::InsertTranslator(const planner::InsertPlanNode &plan, Compilat
       inserter_(GetCodeGen()->MakeFreshIdentifier("inserter")),
       insert_pr_(GetCodeGen()->MakeFreshIdentifier("insert_pr")),
       col_oids_(GetCodeGen()->MakeFreshIdentifier("col_oids")),
+      block_type_(GetCodeGen()->MakeFreshIdentifier("storage_block")),
+      pr_type_(GetCodeGen()->MakeFreshIdentifier("projected_row")),
       table_schema_(GetCodeGen()->GetCatalogAccessor()->GetSchema(GetPlanAs<planner::InsertPlanNode>().GetTableOid())),
       all_oids_(AllColOids(table_schema_)),
-      table_pm_(GetCodeGen()
+      table_cm_(GetCodeGen()
                     ->GetCatalogAccessor()
                     ->GetTable(GetPlanAs<planner::InsertPlanNode>().GetTableOid())
-                    ->ProjectionMapForOids(all_oids_)) {
+                    ->GetColumnMap()) {
   pipeline->RegisterSource(this, Pipeline::Parallelism::Serial);
   for (uint32_t idx = 0; idx < plan.GetBulkInsertCount(); idx++) {
     const auto &node_vals = GetPlanAs<planner::InsertPlanNode>().GetValues(idx);
@@ -45,6 +50,11 @@ InsertTranslator::InsertTranslator(const planner::InsertPlanNode &plan, Compilat
   }
 
   num_inserts_ = CounterDeclare("num_inserts", pipeline);
+}
+
+void InsertTranslator::DefineHelperStructs(util::RegionVector<ast::StructDecl *> *decls) {
+  decls->push_back(GenerateBlockStruct());
+  decls->push_back(GeneratePRStruct());
 }
 
 void InsertTranslator::InitializePipelineState(const Pipeline &pipeline, FunctionBuilder *function) const {
@@ -116,7 +126,7 @@ ast::Expr *InsertTranslator::GetTableColumn(catalog::col_oid_t col_oid) const {
   auto column = table_schema_.GetColumn(col_oid);
   auto type = column.Type();
   auto nullable = column.Nullable();
-  auto attr_index = table_pm_.find(col_oid)->second;
+  auto attr_index = table_cm_.find(col_oid)->second.col_id_.UnderlyingValue() - storage::NUM_RESERVED_COLUMNS;
   return GetCodeGen()->PRGet(GetCodeGen()->MakeExpr(insert_pr_), type, nullable, attr_index);
 }
 
@@ -154,9 +164,9 @@ void InsertTranslator::GenSetTablePR(FunctionBuilder *builder, WorkContext *cont
 
     const auto &table_col_oid = all_oids_[i];
     const auto &table_col = table_schema_.GetColumn(table_col_oid);
-    const auto &pr_set_call =
-        GetCodeGen()->PRSet(GetCodeGen()->MakeExpr(insert_pr_), table_col.Type(), table_col.Nullable(),
-                            table_pm_.find(table_col_oid)->second, src, true);
+    const auto &pr_set_call = GetCodeGen()->PRSet(
+        GetCodeGen()->MakeExpr(insert_pr_), table_col.Type(), table_col.Nullable(),
+        table_cm_.find(table_col_oid)->second.col_id_.UnderlyingValue() - storage::NUM_RESERVED_COLUMNS, src, true);
     builder->Append(GetCodeGen()->MakeStmt(pr_set_call));
   }
 }
@@ -201,6 +211,71 @@ void InsertTranslator::GenIndexInsert(WorkContext *context, FunctionBuilder *bui
   If success(builder, cond);
   { builder->Append(GetCodeGen()->AbortTxn(GetExecutionContext())); }
   success.EndIf();
+}
+
+ast::StructDecl *InsertTranslator::GenerateBlockStruct() const {
+  auto *codegen = GetCodeGen();
+  auto fields = codegen->MakeEmptyFieldList();
+
+  return codegen->DeclareStruct(block_type_, std::move(fields));
+}
+
+ast::StructDecl *InsertTranslator::GeneratePRStruct() const {
+  auto *codegen = GetCodeGen();
+  auto fields = codegen->MakeEmptyFieldList();
+  auto num_cols = table_schema_.GetColumns().size();
+
+  auto nullmap_min_size = storage::StorageUtil::PadUpToSize(8, num_cols) / 8;
+  auto col_ids_length = num_cols + 1 - (num_cols & 1);  // Pad num_cols + col_ids to be 4-byte aligned
+  auto header_size = sizeof(uint32_t) /* size field */ + sizeof(uint16_t) /* num_cols field */ +
+                     sizeof(uint16_t) * col_ids_length /* col_ids array */ +
+                     sizeof(uint32_t) * num_cols /* offsets array */ + nullmap_min_size;
+  auto padding_length = storage::StorageUtil::PadUpToSize(sizeof(uint64_t), header_size) - header_size;
+  auto nullmap_length = nullmap_min_size + padding_length;
+
+  fields.reserve(num_cols + storage::ProjectedRow::NumHeaderFields);
+  fields.push_back(codegen->MakeField(codegen->MakeIdentifier("size"), codegen->Uint32Type()));
+  fields.push_back(codegen->MakeField(codegen->MakeIdentifier("num_cols"), codegen->Uint16Type()));
+  fields.push_back(codegen->MakeField(codegen->MakeIdentifier("col_ids"),
+                                      codegen->ArrayType(col_ids_length, ast::BuiltinType::Kind::Uint16)));
+  fields.push_back(codegen->MakeField(codegen->MakeIdentifier("offsets"),
+                                      codegen->ArrayType(num_cols, ast::BuiltinType::Kind::Uint32)));
+  fields.push_back(codegen->MakeField(codegen->MakeIdentifier("nullmap"),
+                                      codegen->ArrayType(nullmap_length, ast::BuiltinType::Kind::Uint8)));
+
+  std::vector<std::pair<catalog::col_oid_t, uint16_t>> col_layout;
+  col_layout.reserve(num_cols);
+  for (auto const &col_oid_kv : table_cm_) {
+    col_layout[col_oid_kv.second.col_id_.UnderlyingValue() - storage::NUM_RESERVED_COLUMNS] = {
+        col_oid_kv.first, type::TypeUtil::GetTypeSize(col_oid_kv.second.col_type_) & ((1 << 15) - 1)};
+  }
+
+  for (auto const &column : col_layout) {
+    ast::Expr *type = nullptr;  // Suppresses uninitialized use warning from unreachable default case
+    switch (column.second) {
+      case 1:
+        type = codegen->Uint8Type();
+        break;
+      case 2:
+        type = codegen->Uint16Type();
+        break;
+      case 4:
+        type = codegen->Uint32Type();
+        break;
+      case 8:
+        type = codegen->Uint64Type();
+        break;
+      case 16:
+        type = codegen->Uint128Type();
+        break;
+      default:
+        NOISEPAGE_ASSERT(false, "invalid attribute size");
+    }
+    auto name = codegen->MakeIdentifier("col_oid_" + std::to_string(column.first.UnderlyingValue()));
+    fields.push_back(codegen->MakeField(name, type));
+  }
+
+  return codegen->DeclareStruct(pr_type_, std::move(fields));
 }
 
 std::vector<catalog::col_oid_t> InsertTranslator::AllColOids(const catalog::Schema &table_schema) {

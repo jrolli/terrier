@@ -18,11 +18,15 @@ class LargeSqlTableTestObject;
 class RandomSqlTableTransaction;
 }  // namespace noisepage
 
-namespace noisepage::execution::sql {
+namespace noisepage::execution {
+namespace compiler {
+class InsertTranslator;
+}
+namespace sql {
 class TableVectorIterator;
 class VectorProjection;
-}  // namespace noisepage::execution::sql
-
+}  // namespace sql
+}  // namespace noisepage::execution
 namespace noisepage::catalog {
 class Schema;
 }  // namespace noisepage::catalog
@@ -256,6 +260,12 @@ class SqlTable {
    * This is exposed via GetColumnMap() below.
    */
   friend class execution::sql::TableVectorIterator;
+
+  /*
+   * In order to properly build TPL representations of both blocks and projections, the translators for accessing the
+   * storage layer need access to the underlying col_ids and types.
+   */
+  friend class execution::compiler::InsertTranslator;
 
   // Eventually we'll support adding more tables when schema changes. For now we'll always access the one DataTable.
   DataTableVersion table_;
