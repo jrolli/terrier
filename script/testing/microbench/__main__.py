@@ -1,18 +1,19 @@
+import argparse
+import json
+import logging
 import os
 import sys
-import argparse
-import logging
-import json
 
 base_path = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, base_path)
 
-from microbench.artifact_processor import ArtifactProcessor
-from microbench.micro_benchmarks_runner import MicroBenchmarksRunner
-from microbench.config import Config
-from microbench.results_output import send_results, table_dump
-from microbench.constants import (BENCHMARK_THREADS, BENCHMARK_LOGFILE_PATH, BENCHMARK_PATH, MIN_REF_VALUES)
-from util.constants import LOG, PERFORMANCE_STORAGE_SERVICE_API
+from ..util.constants import LOG, PERFORMANCE_STORAGE_SERVICE_API
+from .artifact_processor import ArtifactProcessor
+from .config import Config
+from .constants import (BENCHMARK_LOGFILE_PATH, BENCHMARK_PATH,
+                        BENCHMARK_THREADS, MIN_REF_VALUES)
+from .micro_benchmarks_runner import MicroBenchmarksRunner
+from .results_output import send_results, table_dump
 
 # =========================================================
 # MAIN
@@ -25,12 +26,6 @@ if __name__ == "__main__":
     parser.add_argument('benchmark',
                         nargs='*',
                         help="Benchmark suite to run [default=ALL]")
-
-    parser.add_argument("--run",
-                        action="store_true",
-                        dest="run",
-                        default=False,
-                        help="Run Benchmarks")
 
     parser.add_argument("--local",
                         action="store_true",
@@ -141,12 +136,11 @@ if __name__ == "__main__":
     # -------------------------------------------------------
 
     ret_code = 0
-    if args.run:
-        benchmark_runner = MicroBenchmarksRunner(config)
-        ret_code = benchmark_runner.run_benchmarks(args.perf)
+    benchmark_runner = MicroBenchmarksRunner(config)
+    ret_code = benchmark_runner.run_benchmarks(args.perf)
 
-        if args.local and not ret_code:
-            benchmark_runner.create_local_dirs()
+    if args.local and not ret_code:
+        benchmark_runner.create_local_dirs()
 
     # -------------------------------------------------------
     # Process results
@@ -159,14 +153,13 @@ if __name__ == "__main__":
         else:
             artifact_processor.load_jenkins_artifacts(config.ref_data_source)
 
-    if not ret_code:
         if args.csv_dump:
             LOG.error("--csv-dump is not currently supported")
         else:
             table_dump(config, artifact_processor)
 
-    if args.publish_results != 'none':
-        ret_code = send_results(config, artifact_processor)
+        if args.publish_results != 'none':
+            ret_code = send_results(config, artifact_processor)
 
     LOG.debug("Exit code = {}".format(ret_code))
     sys.exit(ret_code)
