@@ -58,6 +58,21 @@ void PostgresPacketWriter::WriteParameterDescription(const std::vector<type::Typ
   EndPacket();
 }
 
+void PostgresPacketWriter::WriteExplainRowDescription() {
+  BeginPacket(NetworkMessageType::PG_ROW_DESCRIPTION);
+  AppendValue<int16_t>(static_cast<int16_t>(1));  // number of columns
+  AppendString("QUERY PLAN", true);               // column name
+  AppendValue<int32_t>(0);                        // table oid
+  AppendValue<int16_t>(0);                        // column oid
+  AppendValue(static_cast<int32_t>(
+      PostgresValueType::TEXT));  // postgres expects this return type, which is why we're special-casing this function
+  AppendValue<int16_t>(-1);       // variable length
+
+  AppendValue<int32_t>(-1);  // type modifier, generally -1 (see pg_attribute.atttypmod)
+  AppendValue<int16_t>(static_cast<int16_t>(network::FieldFormat::text));  // format code for the field
+  EndPacket();
+}
+
 void PostgresPacketWriter::WriteRowDescription(const std::vector<planner::OutputSchema::Column> &columns,
                                                const std::vector<FieldFormat> &field_formats) {
   BeginPacket(NetworkMessageType::PG_ROW_DESCRIPTION).AppendValue<int16_t>(static_cast<int16_t>(columns.size()));
@@ -158,11 +173,17 @@ void PostgresPacketWriter::WriteCommandComplete(const QueryType query_type, cons
     case QueryType::QUERY_DROP_SCHEMA:
       WriteCommandComplete("DROP SCHEMA");
       break;
+    case QueryType::QUERY_EXPLAIN:
+      WriteCommandComplete("EXPLAIN");
+      break;
     case QueryType::QUERY_SET:
       WriteCommandComplete("SET");
       break;
     case QueryType::QUERY_SHOW:
       WriteCommandComplete("SHOW");
+      break;
+    case QueryType::QUERY_ANALYZE:
+      WriteCommandComplete("ANALYZE");
       break;
     default:
       WriteCommandComplete("This QueryType needs a completion message!");

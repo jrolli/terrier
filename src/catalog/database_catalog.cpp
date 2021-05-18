@@ -334,14 +334,19 @@ void DatabaseCatalog::BootstrapIndex(const common::ManagedPointer<transaction::T
 bool DatabaseCatalog::CreateTableEntry(const common::ManagedPointer<transaction::TransactionContext> txn,
                                        const table_oid_t table_oid, const namespace_oid_t ns_oid,
                                        const std::string &name, const Schema &schema) {
-  // Create associated entries in pg_statistic.
-  {
-    col_oid_t col_oid(1);
-    for (auto &col : schema.GetColumns()) {
-      pg_stat_.CreateColumnStatistic(txn, table_oid, col_oid++, col);
-    }
+  if (pg_core_.CreateTableEntry(txn, table_oid, ns_oid, name, schema)) {
+    CreateTableStatisticEntry(txn, table_oid, GetSchema(txn, table_oid));
+    return true;
   }
-  return pg_core_.CreateTableEntry(txn, table_oid, ns_oid, name, schema);
+  return false;
+}
+
+void DatabaseCatalog::CreateTableStatisticEntry(const common::ManagedPointer<transaction::TransactionContext> txn,
+                                                const table_oid_t table_oid, const Schema &schema) {
+  // Create associated entries in pg_statistic.
+  for (const auto &col : schema.GetColumns()) {
+    pg_stat_.CreateColumnStatistic(txn, table_oid, col.Oid(), col);
+  }
 }
 
 bool DatabaseCatalog::CreateIndexEntry(const common::ManagedPointer<transaction::TransactionContext> txn,
@@ -372,6 +377,16 @@ common::ManagedPointer<execution::functions::FunctionContext> DatabaseCatalog::G
   auto proc_ctx = pg_proc_.GetProcCtxPtr(txn, proc_oid);
   NOISEPAGE_ASSERT(proc_ctx != nullptr, "Dynamically added UDFs are currently not supported.");
   return proc_ctx;
+}
+
+std::unique_ptr<optimizer::ColumnStatsBase> DatabaseCatalog::GetColumnStatistics(
+    common::ManagedPointer<transaction::TransactionContext> txn, table_oid_t table_oid, col_oid_t col_oid) {
+  return pg_stat_.GetColumnStatistics(txn, common::ManagedPointer(this), table_oid, col_oid);
+}
+
+optimizer::TableStats DatabaseCatalog::GetTableStatistics(common::ManagedPointer<transaction::TransactionContext> txn,
+                                                          table_oid_t table_oid) {
+  return pg_stat_.GetTableStatistics(txn, common::ManagedPointer(this), table_oid);
 }
 
 bool DatabaseCatalog::TryLock(const common::ManagedPointer<transaction::TransactionContext> txn) {

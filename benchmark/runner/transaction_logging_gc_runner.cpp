@@ -24,6 +24,7 @@ class TransactionLoggingGCRunner : public benchmark::Fixture {
   const std::chrono::microseconds gc_period_{1000};
   const std::chrono::microseconds metrics_period_{10000};
   common::DedicatedThreadRegistry *thread_registry_ = nullptr;
+  common::ConcurrentBlockingQueue<storage::BufferedLogWriter *> empty_buffer_queue_;
 
   // Settings for log manager
   const uint64_t num_log_buffers_ = 100;
@@ -53,14 +54,15 @@ BENCHMARK_DEFINE_F(TransactionLoggingGCRunner, TransactionRunner)(benchmark::Sta
   // NOLINTNEXTLINE
   for (auto _ : state) {
     auto *const metrics_manager = new metrics::MetricsManager();
-    auto *const metrics_thread = new metrics::MetricsThread(common::ManagedPointer(metrics_manager), metrics_period_);
+    auto *const metrics_thread =
+        new metrics::MetricsThread(common::ManagedPointer(metrics_manager), DISABLED, metrics_period_);
 
     thread_registry_ = new common::DedicatedThreadRegistry(common::ManagedPointer(metrics_manager));
 
-    log_manager_ =
-        new storage::LogManager(LOG_TEST_LOG_FILE_NAME, num_log_buffers_, log_serialization_interval_,
-                                log_persist_interval_, log_persist_threshold_, common::ManagedPointer(&buffer_pool),
-                                common::ManagedPointer<common::DedicatedThreadRegistry>(thread_registry_));
+    log_manager_ = new storage::LogManager(
+        LOG_TEST_LOG_FILE_NAME, num_log_buffers_, log_serialization_interval_, log_persist_interval_,
+        log_persist_threshold_, common::ManagedPointer(&buffer_pool), common::ManagedPointer(&empty_buffer_queue_),
+        DISABLED, common::ManagedPointer<common::DedicatedThreadRegistry>(thread_registry_));
     log_manager_->Start();
 
     LargeDataTableBenchmarkObject tested(attr_sizes_, initial_table_size_, txn_length, insert_update_select_ratio,
@@ -115,12 +117,14 @@ BENCHMARK_DEFINE_F(TransactionLoggingGCRunner, LoggingGCRunner)(benchmark::State
   // NOLINTNEXTLINE
   for (auto _ : state) {
     auto *const metrics_manager = new metrics::MetricsManager();
-    auto *const metrics_thread = new metrics::MetricsThread(common::ManagedPointer(metrics_manager), metrics_period_);
+    auto *const metrics_thread =
+        new metrics::MetricsThread(common::ManagedPointer(metrics_manager), DISABLED, metrics_period_);
 
     thread_registry_ = new common::DedicatedThreadRegistry(common::ManagedPointer(metrics_manager));
 
     log_manager_ = new storage::LogManager(LOG_TEST_LOG_FILE_NAME, num_log_buffers_, config_interval, config_interval,
                                            log_persist_threshold_, common::ManagedPointer(&buffer_pool),
+                                           common::ManagedPointer(&empty_buffer_queue_), DISABLED,
                                            common::ManagedPointer<common::DedicatedThreadRegistry>(thread_registry_));
     log_manager_->Start();
 

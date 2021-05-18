@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -13,6 +14,8 @@
 #include "catalog/postgres/pg_statistic_impl.h"
 #include "catalog/postgres/pg_type_impl.h"
 #include "common/managed_pointer.h"
+#include "optimizer/statistics/column_stats.h"
+#include "optimizer/statistics/table_stats.h"
 
 namespace noisepage::transaction {
 class TransactionContext;
@@ -176,6 +179,14 @@ class DatabaseCatalog {
   common::ManagedPointer<execution::functions::FunctionContext> GetFunctionContext(
       common::ManagedPointer<transaction::TransactionContext> txn, proc_oid_t proc_oid);
 
+  /** @brief Get the statistics for the specified column. @see PgStatisticImpl::GetColumnStatistics */
+  std::unique_ptr<optimizer::ColumnStatsBase> GetColumnStatistics(
+      common::ManagedPointer<transaction::TransactionContext> txn, table_oid_t table_oid, col_oid_t col_oid);
+
+  /** @brief Get the statistics for the specified table. @see PgStatisticImpl::GetTableStatistics */
+  optimizer::TableStats GetTableStatistics(common::ManagedPointer<transaction::TransactionContext> txn,
+                                           table_oid_t table_oid);
+
  private:
   /**
    * The maximum number of tuples to be read out at a time when scanning tables during teardown.
@@ -276,6 +287,13 @@ class DatabaseCatalog {
   bool CreateIndexEntry(common::ManagedPointer<transaction::TransactionContext> txn, namespace_oid_t ns_oid,
                         table_oid_t table_oid, index_oid_t index_oid, const std::string &name,
                         const IndexSchema &schema);
+
+  /**
+   * @brief Creates table statistics in pg_statistic. Should only be called on valid tables, currently only called by
+   * CreateTableEntry after known to succeed.
+   */
+  void CreateTableStatisticEntry(common::ManagedPointer<transaction::TransactionContext> txn, table_oid_t table_oid,
+                                 const Schema &schema);
   /**
    * @brief Delete all of the indexes for a given table.
    *

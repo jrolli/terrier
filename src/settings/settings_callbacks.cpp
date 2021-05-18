@@ -132,6 +132,14 @@ void Callbacks::MetricsPipelineSampleRate(void *old_value, void *new_value, DBMa
   action_context->SetState(common::ActionState::SUCCESS);
 }
 
+void Callbacks::MetricsLoggingSampleRate(void *old_value, void *new_value, DBMain *db_main,
+                                         common::ManagedPointer<common::ActionContext> action_context) {
+  action_context->SetState(common::ActionState::IN_PROGRESS);
+  int interval = *static_cast<int *>(new_value);
+  db_main->GetMetricsManager()->SetMetricSampleRate(metrics::MetricsComponent::LOGGING, static_cast<uint8_t>(interval));
+  action_context->SetState(common::ActionState::SUCCESS);
+}
+
 void Callbacks::MetricsBindCommand(void *const old_value, void *const new_value, DBMain *const db_main,
                                    common::ManagedPointer<common::ActionContext> action_context) {
   action_context->SetState(common::ActionState::IN_PROGRESS);
@@ -162,6 +170,31 @@ void Callbacks::MetricsQueryTrace(void *const old_value, void *const new_value, 
     db_main->GetMetricsManager()->EnableMetric(metrics::MetricsComponent::QUERY_TRACE);
   else
     db_main->GetMetricsManager()->DisableMetric(metrics::MetricsComponent::QUERY_TRACE);
+  action_context->SetState(common::ActionState::SUCCESS);
+}
+
+void Callbacks::MetricsQueryTraceOutput(void *const old_value, void *const new_value, DBMain *const db_main,
+                                        common::ManagedPointer<common::ActionContext> action_context) {
+  action_context->SetState(common::ActionState::IN_PROGRESS);
+  auto output = static_cast<metrics::MetricsOutput>(
+      metrics::MetricsUtil::FromMetricsOutputString(*static_cast<std::string *>(new_value)));
+  db_main->GetMetricsManager()->SetMetricOutput(metrics::MetricsComponent::QUERY_TRACE, output);
+  action_context->SetState(common::ActionState::SUCCESS);
+}
+
+void Callbacks::ForecastSampleLimit(void *old_value, void *new_value, DBMain *db_main,
+                                    common::ManagedPointer<common::ActionContext> action_context) {
+  action_context->SetState(common::ActionState::IN_PROGRESS);
+  int forecast_sample_limit = *static_cast<int *>(new_value);
+  metrics::QueryTraceMetricRawData::query_param_sample = static_cast<uint64_t>(forecast_sample_limit);
+  action_context->SetState(common::ActionState::SUCCESS);
+}
+
+void Callbacks::TaskPoolSize(void *old_value, void *new_value, DBMain *db_main,
+                             common::ManagedPointer<common::ActionContext> action_context) {
+  action_context->SetState(common::ActionState::IN_PROGRESS);
+  int task_size = *static_cast<int *>(new_value);
+  db_main->GetTaskManager()->SetTaskPoolSize(task_size);
   action_context->SetState(common::ActionState::SUCCESS);
 }
 

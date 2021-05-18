@@ -11,7 +11,7 @@
 #include "self_driving/modeling/operating_unit_defs.h"
 
 namespace noisepage::runner {
-class MiniRunners;
+class ExecutionRunners;
 }  // namespace noisepage::runner
 
 namespace noisepage::execution::compiler::test {
@@ -75,7 +75,7 @@ class OperatingUnitRecorder;
  * - Estimated cardinality
  */
 class ExecutionOperatingUnitFeature {
-  friend class noisepage::runner::MiniRunners;
+  friend class noisepage::runner::ExecutionRunners;
   friend class execution::exec::ExecutionContext;
   friend class OperatingUnitRecorder;
   friend class ExecOUFeatureVector;
@@ -377,7 +377,7 @@ class PipelineOperatingUnits {
   friend class noisepage::execution::compiler::test::CompilerTest_InsertIntoSelectWithParamTest_Test;
   friend class noisepage::execution::compiler::test::CompilerTest_SimpleInsertWithParamsTest_Test;
   friend class noisepage::execution::compiler::test::CompilerTest_StaticDistinctAggregateTest_Test;
-  friend class noisepage::runner::MiniRunners;
+  friend class noisepage::runner::ExecutionRunners;
 
   /**
    * Constructor
@@ -404,6 +404,15 @@ class PipelineOperatingUnits {
     UNUSED_ATTRIBUTE auto itr = units_.find(pipeline);
     NOISEPAGE_ASSERT(itr != units_.end(), "Requested pipeline could not be found in PipelineOperatingUnits");
     return itr->second;
+  }
+
+  /**
+   * Gets the map from pipeline id to features
+   * @return the pipeline feature map
+   */
+  const std::unordered_map<execution::pipeline_id_t, ExecutionOperatingUnitFeatureVector> &GetPipelineFeatureMap()
+      const {
+    return units_;
   }
 
   /**

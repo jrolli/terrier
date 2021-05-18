@@ -53,6 +53,7 @@
 #   HEADER Dependencies.
 #   HEADER noisepage libraries.
 #   HEADER noisepage binary.
+#   HEADER noisepage miscellaneous files needed for operation.
 #   HEADER util_static and util_shared libraries.
 #   HEADER hack_bytecode_handlers_ir target.
 #   HEADER gen_opt_bc binary.
@@ -60,6 +61,7 @@
 #   HEADER Tests.
 #   HEADER Benchmarks.
 #   HEADER Generated file destinations.
+#   HEADER startup.sql post-copy command
 #   HEADER Miscellaneous.
 
 #######################################################################################################################
@@ -150,10 +152,11 @@ print_sys_info("OS_NAME;OS_RELEASE;OS_VERSION;OS_PLATFORM")
 #   In practice people only use Debug or Release.
 #
 # CMake options, specify with -DNOISEPAGE_{option}=On.
-#   NOISEPAGE_BUILD_BENCHMARKS              : Enable building benchmarks as part of the ALL target. Default ON.
-#   NOISEPAGE_BUILD_TESTS                   : Enable building tests as part of the ALL (but the Self-Driving test) target. Default ON.
-#   NOISEPAGE_BUILD_SELF_DRIVING_E2E_TESTS  : Enable building self-driving end-to-end tests. Default OFF
+#   NOISEPAGE_BUILD_BENCHMARKS              : Enable building benchmarks as part of the ALL target. Default OFF.
+#   NOISEPAGE_BUILD_TESTS                   : Enable building (non-self-driving-e2e) tests as part of the ALL target. Default OFF.
+#   NOISEPAGE_BUILD_SELF_DRIVING_E2E_TESTS  : Enable building self-driving end-to-end tests as part of the ALL target. Default OFF.
 #   NOISEPAGE_GENERATE_COVERAGE             : Enable C++ code coverage. Default OFF.
+#   NOISEPAGE_TEST_PARALLELISM              : The number of tests that should run in parallel. Default 1.
 #   NOISEPAGE_UNITTEST_OUTPUT_ON_FAILURE    : Enable verbose unittest failures. Default OFF. Can be very verbose.
 #   NOISEPAGE_UNITY_BUILD                   : Enable unity (aka jumbo) builds. Default OFF.
 #   NOISEPAGE_USE_ASAN                      : Enable ASAN, a fast memory error detector. Default OFF.
@@ -169,7 +172,6 @@ print_sys_info("OS_NAME;OS_RELEASE;OS_VERSION;OS_PLATFORM")
 #   NOISEPAGE_INCLUDE_DIRECTORIES : Include directories to be used for NoisePage.
 #   NOISEPAGE_LINK_LIBRARIES      : Link libraries to be added to NoisePage.
 #   NOISEPAGE_LINK_OPTIONS        : Link options to be added to NoisePage.
-#   NOISEPAGE_TEST_PARALLELISM    : The number of tests that should run in parallel.
 #######################################################################################################################
 
 # Default to DEBUG builds if -DCMAKE_BUILD_TYPE was not specified.
@@ -179,11 +181,11 @@ endif (NOT CMAKE_BUILD_TYPE)
 
 option(NOISEPAGE_BUILD_BENCHMARKS
         "Enable building benchmarks as part of the ALL target."
-        ON)
+        OFF)
 
 option(NOISEPAGE_BUILD_TESTS
-        "Enable building tests as part of the ALL target."
-        ON)
+        "Enable building (non-self-driving-e2e) tests as part of the ALL target."
+        OFF)
 
 option(NOISEPAGE_BUILD_SELF_DRIVING_E2E_TESTS
         "Enable building self-driving end-to-end tests as part of the ALL target."
@@ -350,6 +352,21 @@ else ()
     message(STATUS "Colorized output: OFF (unknown compiler ${CMAKE_CXX_COMPILER_ID})")
 endif ()
 
+if ("${CMAKE_GENERATOR}" STREQUAL "Ninja")
+    # Num Logical Cores = Compile Pool + Link Pool (1) + 1
+    # The extra 1 at the end is there for good luck.
+    # A pool controls the _maximum_ parallelism of the jobs assigned to the pool.
+
+    # Force single-threaded linking because linking can consume a ton of memory.
+    cmake_host_system_information(RESULT NINJA_COMPILE_POOL_SIZE QUERY "NUMBER_OF_LOGICAL_CORES")
+    set(NINJA_LINK_POOL_SIZE 1)
+    math(EXPR NINJA_COMPILE_POOL_SIZE "${NINJA_COMPILE_POOL_SIZE} - ${NINJA_LINK_POOL_SIZE} - 1")
+    set_property(GLOBAL PROPERTY JOB_POOLS link_pool=${NINJA_LINK_POOL_SIZE} compile_pool=${NINJA_COMPILE_POOL_SIZE})
+    # Set linking and compiling limits globally for all targets by modifying the default pool options.
+    set(CMAKE_JOB_POOL_COMPILE compile_pool)
+    set(CMAKE_JOB_POOL_LINK link_pool)
+    message(STATUS "Ninja detected. Global pools: link=${NINJA_LINK_POOL_SIZE} compile=${NINJA_COMPILE_POOL_SIZE}")
+endif()
 
 #######################################################################################################################
 # HEADER Dependencies for finding dependencies. : )
@@ -469,14 +486,13 @@ message(STATUS "\nDependencies: Locating...\n===================================
 
 # DISGUSTING HACKS:
 # - -fPIC is required on pretty much every dependency.
-# - fvisibility=hidden is required on OSX while building spdlog.
 # - fsanitize=address is required on OSX.
 set(OLD_CMAKE_BUILD_TYPE "${CMAKE_BUILD_TYPE}")     # Save the current CMAKE_BUILD_TYPE.
 set(OLD_CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")           # Save the current CMAKE_C_FLAGS.
 set(OLD_CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")       # Save the current CMAKE_CXX_FLAGS.
 set(CMAKE_BUILD_TYPE "Release")
-set(CMAKE_C_FLAGS "-fPIC -fvisibility=hidden")
-set(CMAKE_CXX_FLAGS "-fPIC -fvisibility=hidden")
+set(CMAKE_C_FLAGS "-fPIC")
+set(CMAKE_CXX_FLAGS "-fPIC")
 if (${NOISEPAGE_USE_ASAN})
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")
@@ -526,7 +542,7 @@ add_noisepage_dep(nlohmann_json https://github.com/ArthurSonzogni/nlohmann_json_
 add_noisepage_dep(spdlog https://github.com/gabime/spdlog.git v1.8.1)
 add_noisepage_dep(xbyak https://github.com/herumi/xbyak.git v5.77)
 add_noisepage_dep(xxHash https://github.com/Cyan4973/xxHash.git v0.8.0)
-add_noisepage_dep(fast_float https://github.com/lemire/fast_float.git v0.1.0)
+add_noisepage_dep(fast_float https://github.com/lemire/fast_float.git v1.0.0)
 
 # Handle other dependencies.
 
@@ -684,6 +700,18 @@ target_link_libraries(noisepage noisepage_static)
 set_target_properties(noisepage PROPERTIES CXX_EXTENSIONS OFF ENABLE_EXPORTS ON)
 
 #######################################################################################################################
+# HEADER noisepage miscellaneous files needed for operation.
+# replication.config    :   The identities, hostnames, and ports, of all primaries and replicas.
+#######################################################################################################################
+
+# replication.config specifies the identities, hostnames, and ports, and is needed when replication is enabled.
+add_custom_command(
+        TARGET noisepage
+        POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy "${BUILD_SUPPORT_DIR}/data/replication.config" "${CMAKE_BINARY_DIR}/bin/replication.config"
+        )
+
+#######################################################################################################################
 # HEADER util_static and util_shared libraries.
 # util_static           :   table_generator and table_reader for tests and benchmarks.
 # util_shared           :   table_generator and table_reader for tests and benchmarks.
@@ -767,7 +795,6 @@ add_dependencies(noisepage_static bitcode_generator)
 #######################################################################################################################
 # HEADER tpl binary.
 # tpl                   :   Standalone binary for testing .tpl files and commands.
-#                           Also generates POST_BUILD bytecode_handlers_ir.bc.
 #######################################################################################################################
 
 add_executable(tpl util/execution/tpl.cpp)
@@ -822,7 +849,7 @@ add_custom_target(self_driving_e2e_test         # For now, this target is specif
         --resource-spec-file ${BUILD_SUPPORT_DATA_DIR}/ctest_resource_specs.json    # For controlling conflicting tests.
         ${UNITTEST_OUTPUT_ON_FAILURE}       # Whether to print output when a test fails.
         -j ${NOISEPAGE_TEST_PARALLELISM}    # Maximum number of parallel jobs.
-        -L self_driving_e2e_test                # Run all tests that have a label like this. See footgun warning above.
+        -L self_driving_e2e_test            # Run all tests that have a label like this. See footgun warning above.
         --no-compress-output                # Output verbosely so that it can be logged.
         -T Test                             # Run tests and log it to Testing/*/Test.xml.
         --timeout 3000                      # 3000 second timeout per test.
@@ -843,7 +870,7 @@ function(add_test_util_lib TYPE)
     add_custom_command(TARGET noisepage_test_util_${TYPE_LOWER} DEPENDS gtest gtest_main gmock gmock_main)
     target_compile_options(noisepage_test_util_${TYPE_LOWER} PRIVATE "-Werror" "-Wall")
     # Inject the source directory path into the translation units for test utility lib
-    target_compile_definitions(noisepage_test_util_${TYPE_LOWER} PRIVATE NOISEPAGE_PROJECT_ROOT=${CMAKE_SOURCE_DIR})
+    target_compile_definitions(noisepage_test_util_${TYPE_LOWER} PRIVATE NOISEPAGE_BUILD_ROOT=${CMAKE_BINARY_DIR})
     target_include_directories(noisepage_test_util_${TYPE_LOWER} PUBLIC ${PROJECT_SOURCE_DIR}/test/include/)
     target_include_directories(noisepage_test_util_${TYPE_LOWER} SYSTEM PUBLIC
             ${CMAKE_BINARY_DIR}/_deps/src/googletest/googlemock/include/
@@ -925,7 +952,6 @@ file(GLOB_RECURSE NOISEPAGE_TEST_SOURCES
         "test/common/*.cpp"
         "test/execution/*.cpp"
         "test/integration/*.cpp"
-        "test/messenger/*.cpp"
         "test/metrics/*.cpp"
         "test/network/*.cpp"
         "test/optimizer/*.cpp"
@@ -934,6 +960,8 @@ file(GLOB_RECURSE NOISEPAGE_TEST_SOURCES
         "test/self_driving/*.cpp"
         "test/settings/*.cpp"
         "test/storage/*.cpp"
+        "test/sql/*.cpp"
+        "test/task/*.cpp"
         "test/traffic_cop/*.cpp"
         "test/transaction/*.cpp"
         "test/type/*.cpp"
@@ -1053,7 +1081,6 @@ add_jumbotest("test/catalog" "catalog_sql_test;")
 add_jumbotest("test/common" "bitmap_test;concurrent_bitmap_test;rusage_monitor_test;")
 add_jumbotest("test/execution" "ast;compiler_test;index_create_test;index_iterator_test;sql;storage_interface_test;util;vm;")
 add_jumbotest("test/integration" "")
-add_jumbotest("test/messenger" "messenger_test;")
 add_jumbotest("test/metrics" "metrics_test;")
 add_jumbotest("test/network" "network_test;")
 add_jumbotest("test/optimizer" "hyperloglog_test;")
@@ -1062,6 +1089,7 @@ add_jumbotest("test/planner" "")
 add_jumbotest("test/self_driving" "")
 add_jumbotest("test/settings" "")
 add_jumbotest("test/storage" "block_access_controller_test;block_compactor_test;bwtree_test;bwtree_index_test;data_table_test;data_table_concurrent_test;hash_index_test;large_garbage_collector_test;log_test;tuple_access_strategy_test;")
+add_jumbotest("test/task" "")
 add_jumbotest("test/traffic_cop" "traffic_cop_test;")
 add_jumbotest("test/transaction" "large_transaction_test;")
 add_jumbotest("test/type" "")
@@ -1075,10 +1103,7 @@ set_tests_properties(
         traffic_cop_test jumbotest_traffic_cop_traffic_cop_test
         PROPERTIES RESOURCE_GROUPS "port15721:1")
 set_tests_properties(
-        messenger_test jumbotest_messenger_messenger_test
-        PROPERTIES RESOURCE_GROUPS "port15721:1;port15722:1;port15723:1;port9022:1;port9023:1;port9024:1")
-set_tests_properties(
-        modeling_test
+        model_server_test
         PROPERTIES RESOURCE_GROUPS "port15721:1;port9022:1")
 #######################################################################################################################
 # HEADER Benchmarks.
@@ -1129,6 +1154,7 @@ file(GLOB_RECURSE NOISEPAGE_BENCHMARK_SOURCES
         "benchmark/integration/*.cpp"
         "benchmark/metrics/*.cpp"
         "benchmark/parser/*.cpp"
+        "benchmark/replication/*.cpp"
         "benchmark/storage/*.cpp"
         "benchmark/transaction/*.cpp"
         "benchmark/runner/*.cpp"
@@ -1168,6 +1194,22 @@ if (${NOISEPAGE_ENABLE_SHARED})
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
     )
 endif ()
+
+#######################################################################################################################
+# HEADER startup.sql post-copy command.
+# startup.sql           :   Post-copy command for startup.sql into the bin directory
+#######################################################################################################################
+
+add_custom_command(
+        OUTPUT "${CMAKE_BINARY_DIR}/bin/startup.sql"
+        DEPENDS "${PROJECT_SOURCE_DIR}/src/main/startup.sql"
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        COMMAND cp ${PROJECT_SOURCE_DIR}/src/main/startup.sql ${CMAKE_BINARY_DIR}/bin/startup.sql
+        USES_TERMINAL
+)
+
+add_custom_target(startup_sql_generator DEPENDS "${CMAKE_BINARY_DIR}/bin/startup.sql")
+add_dependencies(noisepage startup_sql_generator)
 
 #######################################################################################################################
 # HEADER Miscellaneous.
@@ -1389,6 +1431,29 @@ else ()
             )
     add_custom_command(TARGET check-clang-tidy DEPENDS benchmark gflags gtest)
     message(STATUS "[ADDED] check-clang-tidy (${CLANG_TIDY_BIN})")
+endif ()
+unset(CLANG_TIDY_BIN)
+
+#######################################################################################################################
+# check-clang-tidy-full  :   Run clang-tidy static analysis on the codebase in "full", i.e.,
+#                            normally clang-tidy is only run on files that differ from origin/master.
+#######################################################################################################################
+
+find_program(CLANG_TIDY_BIN NAMES clang-tidy-8 clang-tidy HINTS ${CLANG_TOOLS_SEARCH_PATH})
+if ("${CLANG_TIDY_BIN}" STREQUAL "CLANG_TIDY_BIN-NOTFOUND")
+    message(STATUS "[MISSING] clang-tidy not found, no check-clang-tidy.")
+else ()
+    # Run clang-tidy and exit with a non-zero exit code if any errors are found.
+    # clang-tidy automatically searches for a .clang-tidy file in parent directories.
+    add_custom_target(check-clang-tidy-full
+            ${BUILD_SUPPORT_DIR}/run-clang-tidy.py                            # Run LLVM's clang-tidy script.
+            -clang-tidy-binary ${CLANG_TIDY_BIN}                              # Using the specified clang-tidy binary.
+            -p ${CMAKE_BINARY_DIR}                                            # Using the generated compile commands.
+            -full                                                             # Do not apply the git filter.
+            USES_TERMINAL
+            )
+    add_custom_command(TARGET check-clang-tidy-full DEPENDS benchmark gflags gtest)
+    message(STATUS "[ADDED] check-clang-tidy-full (${CLANG_TIDY_BIN})")
 endif ()
 unset(CLANG_TIDY_BIN)
 
