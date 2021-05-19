@@ -222,7 +222,7 @@ void InsertTranslator::GenSelectSetTablePR(FunctionBuilder *builder, WorkContext
     const auto &table_col = table_schema_.GetColumn(table_col_oid);
     const auto &pr_set_call =
         GetCodeGen()->PRSet(GetCodeGen()->MakeExpr(insert_pr_), table_col.Type(), table_col.Nullable(),
-                            table_pm_.find(table_col_oid)->second, src, true);
+                            table_cm_.find(table_col_oid)->second.col_id_.UnderlyingValue(), src, true);
     builder->Append(GetCodeGen()->MakeStmt(pr_set_call));
   }
 }
